@@ -1,0 +1,361 @@
+name: Package
+
+on:
+  #push:
+  #  branches: [ master ]
+
+  #pull_request:
+  #  branches: [ master ]
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag used for release'
+        default: ''
+        required: false
+      type:
+        description: 'The type of release to be published (supported values: stable, prerelease)'
+        default: ''
+        required: false
+      name:
+        description: 'The title of the release'
+        default: ''
+        required: false
+
+jobs:
+  ubuntu1804:
+    if: ${{ false }}  # disable for now
+    name: Ubuntu 18.04
+    runs-on: ubuntu-18.04
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v3
+
+      - name: Update package database
+        run: |
+          sudo apt-get update
+
+      - name: Install AppImage requirements
+        run: |
+          sudo apt-get install -y fuse libfuse2
+
+      - name: Install download tools
+        run: |
+          sudo apt-get install -y wget curl
+          
+      - name: Install AppImage stuff
+        run: |
+          mkdir ~/Applications
+          curl -s -L --output ~/Applications/linuxdeploy-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod 0755 ~/Applications/linuxdeploy-x86_64.AppImage
+          
+      - name: Install gcc / g++ 11
+        run: |
+          sudo apt install -y software-properties-common
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt install -y gcc-11 g++-11
+          
+      - name: Install Python and SCons
+        run: |
+          sudo add-apt-repository -y ppa:deadsnakes/ppa
+          sudo apt install -y python3.9-full
+          mkdir ~/venv
+          python3.9 -m venv ~/venv
+          . ~/venv/bin/activate && pip install Scons==4.0.1
+          
+      - name: Install dxx-rebirth dependencies
+        run: |
+          sudo apt install -y libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libphysfs-dev libpng-dev
+          
+      - name: Configure and build
+        run: . ~/venv/bin/activate && scons -j`nproc` opengl=1 sdl2=1 sdlmixer=1
+        env:
+          CC:   gcc-11
+          CXX:  g++-11
+        
+      - name: Package AppImage d1x-rebirth
+        run: |
+          OUTPUT="d1x-rebirth-$(git rev-parse --short HEAD)-u1804.AppImage" ~/Applications/linuxdeploy-x86_64.AppImage \
+            -oappimage \
+            --appdir="d1x-rebirth.appdir" \
+            --executable="build/d1x-rebirth/d1x-rebirth" \
+            --desktop-file="d1x-rebirth/d1x-rebirth.desktop" \
+            --icon-file="d1x-rebirth/d1x-rebirth.png"
+        
+      - name: Package AppImage d2x-rebirth
+        run: |
+          OUTPUT="d2x-rebirth-$(git rev-parse --short HEAD)-u1804.AppImage" ~/Applications/linuxdeploy-x86_64.AppImage \
+            -oappimage \
+            --appdir="d2x-rebirth.appdir" \
+            --executable="build/d2x-rebirth/d2x-rebirth" \
+            --desktop-file="d2x-rebirth/d2x-rebirth.desktop" \
+            --icon-file="d2x-rebirth/d2x-rebirth.png"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-appimage-ubuntu-18.04
+          path: '*.AppImage'
+
+  ubuntu2004:
+    if: ${{ false }}  # disable for now
+    name: Ubuntu 20.04
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v3
+
+      - name: Update package database
+        run: |
+          sudo apt-get update
+
+      - name: Install AppImage requirements
+        run: |
+          sudo apt-get install -y fuse libfuse2
+
+      - name: Install download tools
+        run: |
+          sudo apt-get install -y wget curl
+          
+      - name: Install AppImage stuff
+        run: |
+          mkdir ~/Applications
+          curl -s -L --output ~/Applications/linuxdeploy-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod 0755 ~/Applications/linuxdeploy-x86_64.AppImage
+          
+      - name: Install gcc / g++ 11
+        run: |
+          sudo apt install -y software-properties-common
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt install -y gcc-11 g++-11
+          
+      - name: Install Python and SCons
+        run: |
+          sudo apt install -y python3
+          mkdir ~/venv
+          python3 -m venv ~/venv
+          . ~/venv/bin/activate && pip install Scons==4.0.1
+          
+      - name: Install dxx-rebirth dependencies
+        run: |
+          sudo apt install -y libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libphysfs-dev libpng-dev
+          
+      - name: Configure and build
+        run: . ~/venv/bin/activate && scons -j`nproc` opengl=1 sdl2=1 sdlmixer=1
+        env:
+          CC:   gcc-11
+          CXX:  g++-11
+        
+      - name: Package AppImage d1x-rebirth
+        run: |
+          OUTPUT="d1x-rebirth-$(git rev-parse --short HEAD)-u2004.AppImage" ~/Applications/linuxdeploy-x86_64.AppImage \
+            -oappimage \
+            --appdir="d1x-rebirth.appdir" \
+            --executable="build/d1x-rebirth/d1x-rebirth" \
+            --desktop-file="d1x-rebirth/d1x-rebirth.desktop" \
+            --icon-file="d1x-rebirth/d1x-rebirth.png"
+        
+      - name: Package AppImage d2x-rebirth
+        run: |
+          OUTPUT="d2x-rebirth-$(git rev-parse --short HEAD)-u2004.AppImage" ~/Applications/linuxdeploy-x86_64.AppImage \
+            -oappimage \
+            --appdir="d2x-rebirth.appdir" \
+            --executable="build/d2x-rebirth/d2x-rebirth" \
+            --desktop-file="d2x-rebirth/d2x-rebirth.desktop" \
+            --icon-file="d2x-rebirth/d2x-rebirth.png"
+        
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-appimage-ubuntu-20.04
+          path: '*.AppImage'
+
+  ubuntu2204:
+    name: Ubuntu 22.04
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v3
+
+      - name: Update package database
+        run: |
+          sudo apt-get update
+
+      - name: Install AppImage requirements
+        run: |
+          sudo apt-get install -y libfuse2
+
+      - name: Install download tools
+        run: |
+          sudo apt-get install -y wget curl
+          
+      - name: Install AppImage stuff
+        run: |
+          mkdir ~/Applications
+          curl -s -L --output ~/Applications/linuxdeploy-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod 0755 ~/Applications/linuxdeploy-x86_64.AppImage
+          
+      - name: Install gcc / g++ 11
+        run: |
+          sudo apt install -y gcc-11 g++-11
+          
+      - name: Install Python and SCons
+        run: |
+          sudo apt install -y python3 scons
+          
+      - name: Install dxx-rebirth dependencies
+        run: |
+          sudo apt install -y libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libphysfs-dev libpng-dev
+          
+      - name: Configure and build
+        run: scons -j`nproc` opengl=1 sdl2=1 sdlmixer=1
+        env:
+          CC:   gcc-11
+          CXX:  g++-11
+        
+      - name: Package AppImage d1x-rebirth
+        run: |
+          OUTPUT="d1x-rebirth-$(git rev-parse --short HEAD).AppImage" ~/Applications/linuxdeploy-x86_64.AppImage \
+            -oappimage \
+            --appdir="d1x-rebirth.appdir" \
+            --executable="build/d1x-rebirth/d1x-rebirth" \
+            --desktop-file="d1x-rebirth/d1x-rebirth.desktop" \
+            --icon-file="d1x-rebirth/d1x-rebirth.png"
+        
+      - name: Package AppImage d2x-rebirth
+        run: |
+          OUTPUT="d2x-rebirth-$(git rev-parse --short HEAD).AppImage" ~/Applications/linuxdeploy-x86_64.AppImage \
+            -oappimage \
+            --appdir="d2x-rebirth.appdir" \
+            --executable="build/d2x-rebirth/d2x-rebirth" \
+            --desktop-file="d2x-rebirth/d2x-rebirth.desktop" \
+            --icon-file="d2x-rebirth/d2x-rebirth.png"
+        
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-appimage-ubuntu-22.04
+          path: '*.AppImage'
+
+  windows:
+    name: Windows
+    runs-on: windows-2019
+    
+    defaults:
+      run:
+        shell: msys2 {0}
+    
+    steps:
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            zip
+            base-devel 
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-scons
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_image
+            mingw-w64-x86_64-SDL2_mixer
+            mingw-w64-x86_64-physfs
+        
+      - name: Clone repository
+        uses: actions/checkout@v3
+              
+      - name: Configure and build
+        run: scons -j2 sdl2=1 sdlmixer=1
+      
+      - name: Package
+        run: ./contrib/packaging/windows/build_package.sh
+        
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows
+          path: '*.zip'
+
+  macos:
+    name: macOS Apps
+    runs-on: macos-12
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v3
+       
+      - name: Prepare environment
+        run: export MACOSX_DEPLOYMENT_TARGET=10.14
+
+      - name: Install dependencies
+        run: |
+          brew bundle --verbose
+  
+      - name: Temporary fix (Scons)
+        run: |
+          # See: https://github.com/SCons/scons/commit/a4ab466c6df5bd3187e78c36bfa8f68e1fb7659e
+          cp .github/workflows/Environment.py /usr/local/Cellar/scons/4.5.1/libexec/lib/python3.11/site-packages/SCons/Environment.py
+          
+      - name: Configure and build
+        run: |
+          # I do not know why, but readline is not found by pkg-config
+          # For a idea of a fix see: https://superuser.com/a/1277306
+          export PKG_CONFIG_PATH=/usr/local/opt/readline/lib/pkgconfig
+          # run build
+          scons -j2 opengl=1 sdl2=1 sdlmixer=1 macos_add_frameworks=0 macos_bundle_libs=1
+      
+      - name: Package
+        run: ./contrib/packaging/macos/build_package.sh
+        
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos
+          path: '*.zip'
+
+  upload:
+    #if: ${{ false }}
+    name: Create release and upload artifacts
+    needs:
+      #- ubuntu1804
+      #- ubuntu2004
+      - ubuntu2204
+      - windows
+      - macos
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install AppImage requirements
+        run: |
+          sudo apt-get install -y libfuse2
+
+      - name: Install AppImage stuff
+        run: |
+          mkdir ~/Applications
+          curl -s -L --output ~/Applications/pyuploadtool-x86_64.AppImage https://github.com/TheAssassin/pyuploadtool/releases/download/continuous/pyuploadtool-x86_64.AppImage
+          chmod 0755 ~/Applications/pyuploadtool-x86_64.AppImage
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Create release and upload artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export GITHUB_CONTINUOUS_RELEASE_TAG="${{ github.event.inputs.tag }}"
+          export GITHUB_CONTINUOUS_RELEASE_TYPE="${{ github.event.inputs.type }}"
+          export GITHUB_CONTINUOUS_RELEASE_NAME="${{ github.event.inputs.name }}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            [ -z "${GITHUB_CONTINUOUS_RELEASE_TAG}" ] && export GITHUB_CONTINUOUS_RELEASE_TAG="${GITHUB_REF_NAME}"
+            [ -z "${GITHUB_CONTINUOUS_RELEASE_TYPE}" ] && export GITHUB_CONTINUOUS_RELEASE_TYPE=stable
+            [ -z "${GITHUB_CONTINUOUS_RELEASE_NAME}" ] && export GITHUB_CONTINUOUS_RELEASE_NAME="${GITHUB_REF_NAME}"
+          else
+            [ -z "${GITHUB_CONTINUOUS_RELEASE_TAG}" ] && export GITHUB_CONTINUOUS_RELEASE_TAG=continuous
+            [ -z "${GITHUB_CONTINUOUS_RELEASE_TYPE}" ] && export GITHUB_CONTINUOUS_RELEASE_TYPE=prerelease
+            [ -z "${GITHUB_CONTINUOUS_RELEASE_NAME}" ] && export GITHUB_CONTINUOUS_RELEASE_NAME="Continuous Build"
+          fi
+          ~/Applications/pyuploadtool-x86_64.AppImage \
+            linux-appimage-ubuntu-*/d?x-rebirth*.AppImage \
+            windows/*.zip \
+            macos/*.zip
+
