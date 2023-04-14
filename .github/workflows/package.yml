@@ -295,7 +295,10 @@ jobs:
       - name: Temporary fix (Scons)
         run: |
           # See: https://github.com/SCons/scons/commit/a4ab466c6df5bd3187e78c36bfa8f68e1fb7659e
-          cp .github/workflows/Environment.py /usr/local/Cellar/scons/4.5.1/libexec/lib/python3.11/site-packages/SCons/Environment.py
+          if [ -e "/usr/local/Cellar/scons/4.5.1/libexec/lib/python3.11/site-packages/SCons/Environment.py" ]
+          then
+            cp .github/workflows/Environment.py /usr/local/Cellar/scons/4.5.1/libexec/lib/python3.11/site-packages/SCons/Environment.py
+          fi
           
       - name: Configure and build
         run: |
