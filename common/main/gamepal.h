@@ -24,6 +24,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
  */
 
 #pragma once
+#include <array>
 #include <cstddef>
 
 namespace dcx {
@@ -37,17 +38,32 @@ struct PHYSFSX_gets_line_t;
 #include "inferno.h"
 
 namespace dsx {
+
+enum class load_palette_use : bool
+{
+	background,
+	level,
+};
+
+enum class load_palette_change_screen : bool
+{
+	immediate,
+	delayed,
+};
+
 #define D2_DEFAULT_PALETTE "default.256"
 #define MENU_PALETTE    "default.256"
 
 extern char last_palette_loaded[FILENAME_LEN];
 extern PHYSFSX_gets_line_t<FILENAME_LEN> Current_level_palette;
-extern char last_palette_loaded_pig[FILENAME_LEN];
+extern std::array<char, FILENAME_LEN> last_palette_loaded_pig;
 
 // load a palette by name. returns 1 if new palette loaded, else 0
 // if used_for_level is set, load pig, etc.
 // if no_change_screen is set, the current screen does not get
 // remapped, and the hardware palette does not get changed
-int load_palette(std::span<const char> name, int used_for_level, int no_change_screen);
+int load_palette(std::span<const char> name, load_palette_use used_for_level, load_palette_change_screen change_screen);
+void load_palette_for_pig(std::span<const char> name);
+
 }
 #endif
