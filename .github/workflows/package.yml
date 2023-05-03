@@ -70,15 +70,15 @@ jobs:
           #OUTPUT="d1x-rebirth-$(git rev-parse --short HEAD).AppImage"
           #OUTPUT="d2x-rebirth-$(git rev-parse --short HEAD).AppImage"
           if [ "${GITHUB_CONTINUOUS_RELEASE_TYPE}" = "release" ]; then
-            D1X_REBIRTH_UPDATE_INFORMATION_U2004="gh-releases-zsync|maggu2810|dxx-rebirth|latest|D1X-Rebirth*-u2004-x86_64.zsync"
-            D2X_REBIRTH_UPDATE_INFORMATION_U2004="gh-releases-zsync|maggu2810|dxx-rebirth|latest|D2X-Rebirth*-u2004-x86_64.zsync"
-            D1X_REBIRTH_UPDATE_INFORMATION_U2204="gh-releases-zsync|maggu2810|dxx-rebirth|latest|D1X-Rebirth*-u2204-x86_64.zsync"
-            D2X_REBIRTH_UPDATE_INFORMATION_U2204="gh-releases-zsync|maggu2810|dxx-rebirth|latest|D2X-Rebirth*-u2204-x86_64.zsync"
+            D1X_REBIRTH_UPDATE_INFORMATION_U2004="gh-releases-zsync|maggu2810|dxx-rebirth|latest|D1X-Rebirth*-u2004-x86_64.AppImage.zsync"
+            D2X_REBIRTH_UPDATE_INFORMATION_U2004="gh-releases-zsync|maggu2810|dxx-rebirth|latest|D2X-Rebirth*-u2004-x86_64.AppImage.zsync"
+            D1X_REBIRTH_UPDATE_INFORMATION_U2204="gh-releases-zsync|maggu2810|dxx-rebirth|latest|D1X-Rebirth*-u2204-x86_64.AppImage.zsync"
+            D2X_REBIRTH_UPDATE_INFORMATION_U2204="gh-releases-zsync|maggu2810|dxx-rebirth|latest|D2X-Rebirth*-u2204-x86_64.AppImage.zsync"
           else
-            D1X_REBIRTH_UPDATE_INFORMATION_U2004="gh-releases-zsync|maggu2810|dxx-rebirth|${GITHUB_CONTINUOUS_RELEASE_TAG}|D1X-Rebirth*-u2004-x86_64.zsync"
-            D2X_REBIRTH_UPDATE_INFORMATION_U2004="gh-releases-zsync|maggu2810|dxx-rebirth|${GITHUB_CONTINUOUS_RELEASE_TAG}|D2X-Rebirth*-u2004-x86_64.zsync"
-            D1X_REBIRTH_UPDATE_INFORMATION_U2204="gh-releases-zsync|maggu2810|dxx-rebirth|${GITHUB_CONTINUOUS_RELEASE_TAG}|D1X-Rebirth*-u2204-x86_64.zsync"
-            D2X_REBIRTH_UPDATE_INFORMATION_U2204="gh-releases-zsync|maggu2810|dxx-rebirth|${GITHUB_CONTINUOUS_RELEASE_TAG}|D2X-Rebirth*-u2204-x86_64.zsync"
+            D1X_REBIRTH_UPDATE_INFORMATION_U2004="gh-releases-zsync|maggu2810|dxx-rebirth|${GITHUB_CONTINUOUS_RELEASE_TAG}|D1X-Rebirth*-u2004-x86_64.AppImage.zsync"
+            D2X_REBIRTH_UPDATE_INFORMATION_U2004="gh-releases-zsync|maggu2810|dxx-rebirth|${GITHUB_CONTINUOUS_RELEASE_TAG}|D2X-Rebirth*-u2004-x86_64.AppImage.zsync"
+            D1X_REBIRTH_UPDATE_INFORMATION_U2204="gh-releases-zsync|maggu2810|dxx-rebirth|${GITHUB_CONTINUOUS_RELEASE_TAG}|D1X-Rebirth*-u2204-x86_64.AppImage.zsync"
+            D2X_REBIRTH_UPDATE_INFORMATION_U2204="gh-releases-zsync|maggu2810|dxx-rebirth|${GITHUB_CONTINUOUS_RELEASE_TAG}|D2X-Rebirth*-u2204-x86_64.AppImage.zsync"
           fi
           echo "D1X_REBIRTH_OUTPUT_U2004=D1X-Rebirth-u2004-x86_64.AppImage" >> "$GITHUB_OUTPUT"
           echo "D2X_REBIRTH_OUTPUT_U2004=D2X-Rebirth-u2004-x86_64.AppImage" >> "$GITHUB_OUTPUT"
