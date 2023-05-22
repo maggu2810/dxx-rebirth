@@ -162,7 +162,6 @@ struct savegame_newmenu_items
 	};
 	static constexpr unsigned decorative_item_count = 1;
 	using imenu_description_buffers_array = std::array<ntstring<NM_MAX_TEXT_LEN>, NUM_SAVES>;
-	imenu_description_buffers_array *const user_entered_savegame_descriptions;
 	d_game_unique_state::savegame_description *const caller_savegame_description;
 	d_game_unique_state::savegame_file_path &savegame_file_path;
 	enumerated_array<d_game_unique_state::savegame_file_path, NUM_SAVES, d_game_unique_state::save_slot> savegame_file_paths;
@@ -182,7 +181,7 @@ struct savegame_newmenu_items
 	 * savegame slot in use, return true.  This does not test whether
 	 * there currently exists a savegame in the specified slot.
 	 */
-	static unsigned valid_savegame_index(void *const user_entered_savegame_descriptions, const d_game_unique_state::save_slot selection)
+	static unsigned valid_savegame_index(const d_game_unique_state::savegame_description *const user_entered_savegame_descriptions, const d_game_unique_state::save_slot selection)
 	{
 		return user_entered_savegame_descriptions
 			? GameUniqueState.valid_save_slot(selection)
@@ -190,7 +189,7 @@ struct savegame_newmenu_items
 	}
 	unsigned valid_savegame_index(const d_game_unique_state::save_slot selection) const
 	{
-		return valid_savegame_index(user_entered_savegame_descriptions, selection);
+		return valid_savegame_index(caller_savegame_description, selection);
 	}
 	std::size_t get_count_valid_menuitem_entries(d_game_unique_state::savegame_description *const savegame_description) const
 	{
@@ -198,14 +197,30 @@ struct savegame_newmenu_items
 	}
 };
 
-struct savegame_chooser_newmenu : savegame_newmenu_items, newmenu
+struct savegame_chooser_newmenu final : savegame_newmenu_items, newmenu
 {
+	enum class trailing_storage_size : std::size_t
+	{
+	};
+	static void *operator new(std::size_t bytes) = delete;
+	static void *operator new(std::size_t bytes, const trailing_storage_size extra_bytes)
+	{
+		return ::operator new(bytes + static_cast<std::size_t>(extra_bytes));
+	}
+	static void operator delete(void *p)
+	{
+		::operator delete(p);
+	}
+	static void operator delete(void *p, trailing_storage_size)
+	{
+		::operator delete(p);
+	}
 	virtual window_event_result event_handler(const d_event &) override;
 	static std::unique_ptr<savegame_chooser_newmenu> create(menu_subtitle caption, grs_canvas &src, d_game_unique_state::savegame_description *const savegame_description, d_game_unique_state::savegame_file_path &savegame_file_path);
 private:
 	void draw_handler(grs_canvas &canvas, const grs_bitmap &bmp);
 	void draw_handler();
-	savegame_chooser_newmenu(menu_subtitle caption, grs_canvas &src, d_game_unique_state::savegame_description *, d_game_unique_state::savegame_file_path &, imenu_description_buffers_array *);
+	savegame_chooser_newmenu(menu_subtitle caption, grs_canvas &src, d_game_unique_state::savegame_description *, d_game_unique_state::savegame_file_path &);
 	d_game_unique_state::save_slot build_save_slot_from_citem() const
 	{
 		if (citem < decorative_item_count)
@@ -216,18 +231,18 @@ private:
 
 std::unique_ptr<savegame_chooser_newmenu> savegame_chooser_newmenu::create(menu_subtitle caption, grs_canvas &src, d_game_unique_state::savegame_description *const savegame_description, d_game_unique_state::savegame_file_path &savegame_file_path)
 {
-	std::unique_ptr<uint8_t[]> p(savegame_description
-		/* request to create a "Save game" menu */
-		? reinterpret_cast<uint8_t *>(new typename std::aligned_union<sizeof(savegame_chooser_newmenu) + sizeof(savegame_chooser_newmenu::imenu_description_buffers_array), savegame_chooser_newmenu>::type)
-		/* request to create a "Load game" menu */
-		: reinterpret_cast<uint8_t *>(new typename std::aligned_union<0 /* no extra storage needed, and aligned_union will ensure the value is sufficient for the aligned type */, savegame_chooser_newmenu>::type)
-	);
-	new (p.get()) savegame_chooser_newmenu(caption, src, savegame_description, savegame_file_path, savegame_description ? reinterpret_cast<imenu_description_buffers_array *>(p.get() + sizeof(savegame_chooser_newmenu)) : nullptr);
-	return std::unique_ptr<savegame_chooser_newmenu>(reinterpret_cast<savegame_chooser_newmenu *>(p.release()));
+	/* If savegame_description is not nullptr, then this is a request to
+	 * create a "Save game" menu.  Otherwise, it is a request to create a
+	 * "Load game" menu.
+	 */
+	const savegame_chooser_newmenu::trailing_storage_size extra_bytes{
+		savegame_description ? sizeof(savegame_chooser_newmenu::imenu_description_buffers_array) : 0
+	};
+	return std::unique_ptr<savegame_chooser_newmenu>(new (extra_bytes) savegame_chooser_newmenu(caption, src, savegame_description, savegame_file_path));
 }
 
-savegame_chooser_newmenu::savegame_chooser_newmenu(menu_subtitle subtitle, grs_canvas &src, d_game_unique_state::savegame_description *const savegame_description, d_game_unique_state::savegame_file_path &savegame_file_path, imenu_description_buffers_array *const user_entered_savegame_descriptions) :
-	savegame_newmenu_items(savegame_description, savegame_file_path, user_entered_savegame_descriptions),
+savegame_chooser_newmenu::savegame_chooser_newmenu(menu_subtitle subtitle, grs_canvas &src, d_game_unique_state::savegame_description *const savegame_description, d_game_unique_state::savegame_file_path &savegame_file_path) :
+	savegame_newmenu_items(savegame_description, savegame_file_path, savegame_description ? reinterpret_cast<savegame_newmenu_items::imenu_description_buffers_array *>(this + 1) : nullptr),
 	newmenu(menu_title{nullptr}, subtitle, menu_filename{nullptr}, tiny_mode_flag::normal, tab_processing_flag::ignore, adjusted_citem::create(unchecked_partial_range(m, get_count_valid_menuitem_entries(savegame_description)), decorative_item_count), src)
 {
 }
@@ -586,7 +601,19 @@ static void state_object_rw_to_object(const object_rw *const obj_rw, object &obj
 			obj.ctype.laser_info.parent_num       = obj_rw->ctype.laser_info.parent_num;
 			obj.ctype.laser_info.parent_signature = object_signature_t{static_cast<uint16_t>(obj_rw->ctype.laser_info.parent_signature)};
 			obj.ctype.laser_info.creation_time    = obj_rw->ctype.laser_info.creation_time;
-			obj.ctype.laser_info.reset_hitobj(obj_rw->ctype.laser_info.last_hitobj);
+			/* Use vcobjidx_t so that `object_none` fails the test and uses the
+			 * `else` path.  `reset_hitobj` can accept `object_none`, but it
+			 * cannot accept invalid indexes, such as the corrupted value
+			 * `0x1ff` produced by certain <0.60 builds, when they ran
+			 * `laser_info.hitobj_list[-1] = 1;` due to using `object_none`
+			 * (`-1` back then) as if it were a valid index.  That bug was
+			 * fixed in 14cdf1b3521ff82701c58c04e47a6c1deefe8e43, but some old
+			 * save games were corrupted by it, so trap that error here.
+			 */
+			if (const auto last_hitobj = obj_rw->ctype.laser_info.last_hitobj; vcobjidx_t::check_nothrow_index(last_hitobj))
+				obj.ctype.laser_info.reset_hitobj(last_hitobj);
+			else
+				obj.ctype.laser_info.clear_hitobj();
 			obj.ctype.laser_info.track_goal       = obj_rw->ctype.laser_info.track_goal;
 			obj.ctype.laser_info.multiplier       = obj_rw->ctype.laser_info.multiplier;
 #if defined(DXX_BUILD_DESCENT_II)
@@ -975,7 +1002,6 @@ uint8_t read_savegame_properties(const std::size_t savegame_index, d_game_unique
 }
 
 savegame_newmenu_items::savegame_newmenu_items(d_game_unique_state::savegame_description *const savegame_description, d_game_unique_state::savegame_file_path &savegame_file_path, imenu_description_buffers_array *const user_entered_savegame_descriptions) :
-	user_entered_savegame_descriptions(user_entered_savegame_descriptions),
 	caller_savegame_description(savegame_description),
 	savegame_file_path(savegame_file_path)
 {
@@ -2114,7 +2140,7 @@ int state_restore_all_sub(const d_level_shared_destructible_light_state &LevelSh
 		}
 #endif
 	}
-	special_reset_objects(LevelUniqueObjectState);
+	special_reset_objects(LevelUniqueObjectState, LevelSharedRobotInfoState.Robot_info);
 	/* Reload plrobj reference.  The player's object number may have
 	 * been changed by the state_object_rw_to_object call.
 	 */
@@ -2527,7 +2553,7 @@ int state_restore_all_sub(const d_level_shared_destructible_light_state &LevelSh
 			if (!coop_player_got[i] && vcplayerptr(i)->connected == player_connection_status::playing)
 				multi_disconnect_player(i);
 		Viewer = ConsoleObject = &get_local_plrobj(); // make sure Viewer and ConsoleObject are set up (which we skipped by not using InitPlayerObject but we need since objects changed while loading)
-		special_reset_objects(LevelUniqueObjectState); // since we juggled around with objects to remap coop players rebuild the index of free objects
+		special_reset_objects(LevelUniqueObjectState, LevelSharedRobotInfoState.Robot_info); // since we juggled around with objects to remap coop players rebuild the index of free objects
 		state_set_next_autosave(GameUniqueState, Netgame.MPGameplayOptions.AutosaveInterval);
 	}
 	else

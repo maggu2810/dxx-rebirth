@@ -6,16 +6,16 @@
  */
 /** \file ignorecase.c */
 
+#include <cstddef>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <optional>
 
 #include "physfsx.h"
 #include "physfs_list.h"
 #include "ignorecase.h"
-
-#include "compiler-range_for.h"
 
 /**
  * Please see ignorecase.h for details.
@@ -38,50 +38,44 @@
 
 namespace dcx {
 
-/* I'm not screwing around with stricmp vs. strcasecmp... */
-static int caseInsensitiveStringCompare(const char *x, const char *y)
-{
-    int ux, uy;
-    do
-    {
-        ux = toupper(static_cast<int>(*x));
-        uy = toupper(static_cast<int>(*y));
-        if (ux != uy)
-            return((ux > uy) ? 1 : -1);
-        x++;
-        y++;
-    } while ((ux) && (uy));
-
-    return(0);
-} /* caseInsensitiveStringCompare */
-
 namespace {
 
-class search_result_t : public PHYSFSX_uncounted_list
+/* I'm not screwing around with stricmp vs. strcasecmp... */
+static std::optional<std::size_t> caseInsensitiveStringCompare(const char *x, const char *y)
 {
-	typedef PHYSFSX_uncounted_list base_ptr;
-public:
-	search_result_t(char *ptr, const char *buf) :
-		base_ptr(PHYSFS_enumerateFiles(ptr ? (*ptr = 0, buf) : "/"))
-	{
-		if (ptr)
-			*ptr = '/';
+	const auto sx = x;
+	for (;;)
+    {
+		const auto ux = toupper(static_cast<unsigned>(*x));
+		const auto uy = toupper(static_cast<unsigned>(*y));
+        if (ux != uy)
+			return std::nullopt;
+		if (!ux)
+			return std::distance(sx, x);
+        x++;
+        y++;
 	}
-};
-
-}
+} /* caseInsensitiveStringCompare */
 
 static int locateOneElement(char *const sptr, char *const ptr, const char *buf)
 {
     if (const auto r = PHYSFS_exists(buf))
         return r;  /* quick rejection: exists in current case. */
 
-	search_result_t rc{ptr, buf};
-	range_for (const auto i, rc)
+	struct search_result : PHYSFSX_uncounted_list
+	{
+		search_result(char *ptr, const char *buf) :
+			PHYSFSX_uncounted_list(PHYSFS_enumerateFiles(ptr ? (*ptr = 0, buf) : "/"))
+		{
+			if (ptr)
+				*ptr = '/';
+		}
+	};
+	for (const auto i : search_result{ptr, buf})
     {
-		if (caseInsensitiveStringCompare(i, sptr) == 0)
+		if (const auto o = caseInsensitiveStringCompare(i, sptr))
         {
-			strcpy(sptr, i); /* found a match. Overwrite with this case. */
+			std::memcpy(sptr, i, *o); /* found a match. Overwrite with this case. */
             return(1);
         } /* if */
     } /* for */
@@ -90,6 +84,7 @@ static int locateOneElement(char *const sptr, char *const ptr, const char *buf)
     return(0);
 } /* locateOneElement */
 
+}
 
 int PHYSFSEXT_locateCorrectCase(char *buf)
 {

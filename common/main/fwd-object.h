@@ -208,8 +208,10 @@ void obj_delete(d_level_unique_object_state &LevelUniqueObjectState, segment_arr
 // compressed
 void reset_objects(d_level_unique_object_state &, unsigned n_objs);
 
+#if DXX_USE_EDITOR
 // make object array non-sparse
 void compress_objects();
+#endif
 
 // set viewer object to next object in array
 void object_goto_next_viewer(const object_array &Objects, const object *&viewer);
@@ -264,12 +266,6 @@ void clear_transient_objects(int clear_all);
 // free objects
 [[nodiscard]]
 imobjptridx_t obj_allocate(d_level_unique_object_state &);
-
-// after calling init_object(), the network code has grabbed specific
-// object slots without allocating them.  Go though the objects &
-// build the free list, then set the apporpriate globals Don't call
-// this function if you don't know what you're doing.
-void special_reset_objects(d_level_unique_object_state &);
 
 // attaches an object, such as a fireball, to another object, such as
 // a robot

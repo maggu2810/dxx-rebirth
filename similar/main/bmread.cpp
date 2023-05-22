@@ -110,6 +110,13 @@ uint8_t wall_blastable_flag;
 uint8_t wall_hidden_flag;
 uint8_t tmap1_flag;		//flag if this is used as tmap_num (not tmap_num2)
 
+struct get_texture_result
+{
+	std::size_t texture_count;
+	std::size_t idx_updated_texture;
+	bool reuse_texture;
+};
+
 }
 
 }
@@ -135,7 +142,6 @@ static int			Num_robot_ais;
 static int			SuperX = -1;
 static int			Installed=0;
 static short 		tmap_count = 0;
-static short 		texture_count = 0;
 }
 }
 namespace dsx {
@@ -187,7 +193,7 @@ static void bm_read_robot_ai(d_robot_info_array &Robot_info, char *&arg, int ski
 static void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, char *&arg, int skip);
 static void bm_read_object(char *&arg, int skip);
 static void bm_read_player_ship(char *&arg, int skip);
-static void bm_read_some_file(d_vclip_array &Vclip, const std::string &dest_bm, char *&arg, int skip);
+static std::size_t bm_read_some_file(d_vclip_array &Vclip, std::size_t texture_count, const std::string &dest_bm, char *&arg, int skip);
 static void bm_read_weapon(char *&arg, int skip, int unused_flag);
 static void bm_read_powerup(char *&arg, int unused_flag);
 static void bm_read_hostage(char *&arg);
@@ -205,7 +211,7 @@ static void bm_read_weapon(int skip, int unused_flag);
 static void bm_read_reactor(void);
 static void bm_read_exitmodel(void);
 static void bm_read_player_ship(void);
-static void bm_read_some_file(d_vclip_array &Vclip, int skip);
+static std::size_t bm_read_some_file(d_vclip_array &Vclip, std::size_t texture_count, int skip);
 static void bm_read_sound(int skip);
 static void clear_to_end_of_line(void);
 static void verify_textures(void);
@@ -427,6 +433,13 @@ static int get_int()
 	xarg = strtok( NULL, space_tab );
 	return atoi( xarg );
 }
+
+static void set_texture_fname(d_fname &fname, const char *name)
+{
+	fname.copy_if(name, FILENAME_LEN);
+	REMOVE_DOTS(&fname[0u]);
+}
+
 }
 }
 
@@ -434,7 +447,7 @@ namespace dsx {
 namespace {
 
 //loads a texture and returns the texture num
-static std::pair<unsigned, bool> get_texture(d_level_unique_tmap_info_state::TmapInfo_array &TmapInfo, const int skip, const char *const name)
+static get_texture_result get_texture(d_level_unique_tmap_info_state::TmapInfo_array &TmapInfo, const int skip, const char *const name, std::size_t texture_count)
 {
 	d_fname short_name;
 	short_name.copy_if(name, FILENAME_LEN);
@@ -443,13 +456,21 @@ static std::pair<unsigned, bool> get_texture(d_level_unique_tmap_info_state::Tma
 	for (const auto &&[i, ti] : enumerate(partial_range(TmapInfo, t)))
 	{
 		if (!d_stricmp(ti.filename, short_name))
-			return {i, true};
+			return {
+				.texture_count = texture_count,
+				.idx_updated_texture = i,
+				.reuse_texture = true
+			};
 	}
 	Textures[t] = bm_load_sub(skip, name);
 	TmapInfo[t].filename.copy_if(short_name);
 	++texture_count;
 	NumTextures = texture_count;
-	return {t, false};
+	return {
+		.texture_count = texture_count,
+		.idx_updated_texture = t,
+		.reuse_texture = false
+	};
 }
 
 }
@@ -463,6 +484,7 @@ static std::pair<unsigned, bool> get_texture(d_level_unique_tmap_info_state::Tma
 // If no editor, properties_read_cmp() is called.
 int gamedata_read_tbl(d_level_shared_robot_info_state &LevelSharedRobotInfoState, d_vclip_array &Vclip, int pc_shareware)
 {
+	std::size_t texture_count{};
 	auto &Effects = LevelUniqueEffectsClipState.Effects;
 	auto &TmapInfo = LevelUniqueTmapInfoState.TmapInfo;
 	auto &WallAnims = GameSharedState.WallAnims;
@@ -685,7 +707,13 @@ int gamedata_read_tbl(d_level_shared_robot_info_state &LevelSharedRobotInfoState
 			else IFTOK("water")	 			TmapInfo[texture_count-1].flags |= tmapinfo_flag::water;
 			else IFTOK("force_field")		TmapInfo[texture_count-1].flags |= tmapinfo_flag::force_field;
 			else IFTOK("slide")	 			{TmapInfo[texture_count-1].slide_u = fl2f(get_float())>>8; TmapInfo[texture_count-1].slide_v = fl2f(get_float())>>8;}
-			else IFTOK("destroyed")	 		{int t=texture_count-1; TmapInfo[t].destroyed = get_texture(LevelUniqueTmapInfoState.TmapInfo, 0, strtok(nullptr, space_tab)).first;}
+			else IFTOK("destroyed")
+			{
+				const auto t = texture_count - 1;
+				const auto &&r = get_texture(LevelUniqueTmapInfoState.TmapInfo, 0, strtok(nullptr, space_tab), texture_count);
+				texture_count = r.texture_count;
+				TmapInfo[t].destroyed = r.idx_updated_texture;
+			}
 #endif
 			//else IFTOK("Num_effects")		Num_effects = get_int();
 			else IFTOK("Num_wall_anims")	Num_wall_anims = get_int();
@@ -768,9 +796,9 @@ int gamedata_read_tbl(d_level_shared_robot_info_state &LevelSharedRobotInfoState
 				// Otherwise, 'arg' is apparently a bitmap filename.
 				// Load bitmap and process it below:
 #if defined(DXX_BUILD_DESCENT_I)
-				bm_read_some_file(Vclip, dest_bm, arg, skip);
+				texture_count = bm_read_some_file(Vclip, texture_count, dest_bm, arg, skip);
 #elif defined(DXX_BUILD_DESCENT_II)
-				bm_read_some_file(Vclip, skip);
+				texture_count = bm_read_some_file(Vclip, texture_count, skip);
 #endif
 
 			}
@@ -880,22 +908,20 @@ static void set_lighting_flag(grs_bitmap &bmp)
 	bmp.set_flag_mask(vlighting < 0, BM_FLAG_NO_LIGHTING);
 }
 
-static void set_texture_name(const char *name)
-{
-	auto &TmapInfo = LevelUniqueTmapInfoState.TmapInfo;
-	TmapInfo[texture_count].filename.copy_if(name, FILENAME_LEN);
-	REMOVE_DOTS(&TmapInfo[texture_count].filename[0u]);
-}
-
 }
 
 namespace dsx {
 namespace {
 
+static void set_texture_name(d_level_unique_tmap_info_state::TmapInfo_array &TmapInfo, const unsigned texture_idx, const char *name)
+{
+	set_texture_fname(TmapInfo[texture_idx].filename, name);
+}
+
 #if defined(DXX_BUILD_DESCENT_I)
-static void bm_read_eclip(const std::string &dest_bm, const char *const arg, int skip)
+static std::size_t bm_read_eclip(std::size_t texture_count, const std::string &dest_bm, const char *const arg, int skip)
 #elif defined(DXX_BUILD_DESCENT_II)
-static void bm_read_eclip(int skip)
+static std::size_t bm_read_eclip(std::size_t texture_count, int skip)
 #endif
 {
 	auto &Effects = LevelUniqueEffectsClipState.Effects;
@@ -914,13 +940,14 @@ static void bm_read_eclip(int skip)
 	//texture will be the monitor, so that lighting parameter will be applied
 	//to the correct texture
 	if (dest_bm) {			//deal with bitmap for blown up clip
-		const auto &&[i, f] = get_texture(LevelUniqueTmapInfoState.TmapInfo, skip, dest_bm);
-		if (!f)
+		const auto &&r = get_texture(LevelUniqueTmapInfoState.TmapInfo, skip, dest_bm, texture_count);
+		texture_count = r.texture_count;
+		if (!r.reuse_texture)
 		{
 		}
-		else if (Textures[i] == bitmap_index{})		//was found, but registered out
-			Textures[i] = bm_load_sub(skip, dest_bm);
-		dest_bm_num = i;
+		else if (auto &t = Textures[r.idx_updated_texture]; t == bitmap_index{})		//was found, but registered out
+			t = bm_load_sub(skip, dest_bm);
+		dest_bm_num = r.idx_updated_texture;
 	}
 #endif
 
@@ -944,7 +971,7 @@ static void bm_read_eclip(int skip)
 			Assert(tmap_count < MAX_TEXTURES);
 	  		tmap_count++;
 			Textures[texture_count] = bitmap;
-			set_texture_name(arg);
+			set_texture_name(LevelUniqueTmapInfoState.TmapInfo, texture_count, arg);
 			Assert(texture_count < MAX_TEXTURES);
 			texture_count++;
 			TmapInfo[texture_count].eclip_num = clip_num;
@@ -971,7 +998,7 @@ static void bm_read_eclip(int skip)
 			Assert(tmap_count < MAX_TEXTURES);
   			tmap_count++;
 			Textures[texture_count] = bm[clip_count];
-			set_texture_name( arg );
+			set_texture_name(LevelUniqueTmapInfoState.TmapInfo, texture_count, arg);
 			Assert(texture_count < MAX_TEXTURES);
 			TmapInfo[texture_count].eclip_num = clip_num;
 			texture_count++;
@@ -1008,8 +1035,11 @@ static void bm_read_eclip(int skip)
 #endif
 	{			//deal with bitmap for blown up clip
 #if defined(DXX_BUILD_DESCENT_I)
-		const auto &&[i, f] = get_texture(LevelUniqueTmapInfoState.TmapInfo, skip, dest_bm.c_str());
-		Effects[clip_num].dest_bm_num = i;
+		{
+			const auto &&r = get_texture(LevelUniqueTmapInfoState.TmapInfo, skip, dest_bm.c_str(), texture_count);
+			texture_count = r.texture_count;
+			Effects[clip_num].dest_bm_num = r.idx_updated_texture;
+		}
 #elif defined(DXX_BUILD_DESCENT_II)
 		Effects[clip_num].dest_bm_num = dest_bm_num;
 #endif
@@ -1031,6 +1061,7 @@ static void bm_read_eclip(int skip)
 
 	if (crit_flag)
 		Effects[clip_num].flags |= EF_CRITICAL;
+	return texture_count;
 }
 
 #if defined(DXX_BUILD_DESCENT_I)
@@ -1059,7 +1090,7 @@ static void bm_read_gauges(int skip)
 }
 
 #if defined(DXX_BUILD_DESCENT_I)
-static void bm_read_wclip(char *const arg, int skip)
+static std::size_t bm_read_wclip(std::size_t texture_count, char *const arg, int skip)
 #elif defined(DXX_BUILD_DESCENT_II)
 static void bm_read_gauges_hires()
 {
@@ -1082,7 +1113,7 @@ static void bm_read_gauges_hires()
 	}
 }
 
-static void bm_read_wclip(int skip)
+static std::size_t bm_read_wclip(std::size_t texture_count, int skip)
 #endif
 {
 	auto &TmapInfo = LevelUniqueTmapInfoState.TmapInfo;
@@ -1105,7 +1136,7 @@ static void bm_read_wclip(int skip)
 		wa.close_sound = wall_close_sound;
 		Textures[texture_count] = bitmap;
 		set_lighting_flag(GameBitmaps[bitmap]);
-		set_texture_name( arg );
+		set_texture_name(LevelUniqueTmapInfoState.TmapInfo, texture_count, arg);
 		Assert(texture_count < MAX_TEXTURES);
 		texture_count++;
 		NumTextures = texture_count;
@@ -1144,6 +1175,7 @@ static void bm_read_wclip(int skip)
 			NumTextures = texture_count;
 		}
 	}
+	return texture_count;
 }
 
 #if defined(DXX_BUILD_DESCENT_I)
@@ -2070,9 +2102,9 @@ void bm_read_player_ship(void)
 }
 
 #if defined(DXX_BUILD_DESCENT_I)
-void bm_read_some_file(d_vclip_array &Vclip, const std::string &dest_bm, char *&arg, int skip)
+std::size_t bm_read_some_file(d_vclip_array &Vclip, std::size_t texture_count, const std::string &dest_bm, char *&arg, int skip)
 #elif defined(DXX_BUILD_DESCENT_II)
-void bm_read_some_file(d_vclip_array &Vclip, int skip)
+std::size_t bm_read_some_file(d_vclip_array &Vclip, std::size_t texture_count, int skip)
 #endif
 {
 
@@ -2087,66 +2119,56 @@ void bm_read_some_file(d_vclip_array &Vclip, int skip)
 		if (Num_cockpits >= N_COCKPIT_BITMAPS)
 			throw std::runtime_error("too many cockpit bitmaps");
 		cockpit_bitmap[static_cast<cockpit_mode_t>(Num_cockpits++)] = bitmap;
-#if defined(DXX_BUILD_DESCENT_II)
-		return;
-#endif
+		return texture_count;
 		}
-		break;
 	case bm_type::gauges:
 #if defined(DXX_BUILD_DESCENT_I)
 		bm_read_gauges(arg, skip);
 #elif defined(DXX_BUILD_DESCENT_II)
 		bm_read_gauges(skip);
-		return;
-		break;
+		return texture_count;
 	case bm_type::gauges_hires:
 		bm_read_gauges_hires();
-		return;
 #endif
-		break;
+		return texture_count;
 	case bm_type::vclip:
 #if defined(DXX_BUILD_DESCENT_I)
 		bm_read_vclip(Vclip, arg, skip);
 #elif defined(DXX_BUILD_DESCENT_II)
 		bm_read_vclip(Vclip, skip);
-		return;
 #endif
-		break;
+		return texture_count;
 	case bm_type::eclip:
 #if defined(DXX_BUILD_DESCENT_I)
-		bm_read_eclip(dest_bm, arg, skip);
+		texture_count = bm_read_eclip(texture_count, dest_bm, arg, skip);
 #elif defined(DXX_BUILD_DESCENT_II)
-		bm_read_eclip(skip);
-		return;
+		texture_count = bm_read_eclip(texture_count, skip);
 #endif
-		break;
+		return texture_count;
 	case bm_type::textures:			{
 		const auto bitmap = bm_load_sub(skip, arg);
 		Assert(tmap_count < MAX_TEXTURES);
   		tmap_count++;
 		Textures[texture_count] = bitmap;
-		set_texture_name( arg );
+		set_texture_name(LevelUniqueTmapInfoState.TmapInfo, texture_count, arg);
 		Assert(texture_count < MAX_TEXTURES);
 		texture_count++;
 		NumTextures = texture_count;
-#if defined(DXX_BUILD_DESCENT_II)
-		return;
-#endif
+		return texture_count;
 		}
-		break;
 	case bm_type::wclip:
 #if defined(DXX_BUILD_DESCENT_I)
-		bm_read_wclip(arg, skip);
-		break;
+		texture_count = bm_read_wclip(texture_count, arg, skip);
+		return texture_count;
 	default:
 #elif defined(DXX_BUILD_DESCENT_II)
-		bm_read_wclip(skip);
-		return;
+		texture_count = bm_read_wclip(texture_count, skip);
+		return texture_count;
 #endif
 	case bm_type::effects:
 	case bm_type::wall_anims:
 	case bm_type::robot:
-		break;
+		return texture_count;
 	}
 #if defined(DXX_BUILD_DESCENT_II)
 	Error("Trying to read bitmap <%s> with unknown current_bm_type <%x> on line %d of BITMAPS.TBL",arg,static_cast<unsigned>(current_bm_type), linenum);

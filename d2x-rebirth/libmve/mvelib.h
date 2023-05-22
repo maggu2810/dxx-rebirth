@@ -13,11 +13,13 @@
 #include "libmve.h"
 
 #include <cstdint>
+#include <span>
 #include <vector>
 #include "dxxsconf.h"
-#include "dsx-ns.h"
-#include "d_array.h"
 #include <SDL.h>
+#include "physfsrwops.h"
+
+namespace d2x {
 
 enum class mve_opcode : uint8_t
 {
@@ -34,7 +36,7 @@ enum class mve_opcode : uint8_t
 	initvideomode = 0x0A,
 
 	setpalette = 0x0C,
-	setpalettecompressed = 0x0D,
+	/* setpalettecompressed = 0x0D,	// unused */
 
 	setdecodingmap = 0x0F,
 
@@ -47,11 +49,12 @@ enum class mve_opcode : uint8_t
  */
 struct MVEFILE
 {
-	using stream_type = SDL_RWops;
 	MVEFILE() = default;
-	MVEFILE(stream_type *);
+	MVEFILE(RWops_ptr);
+	MVEFILE(MVEFILE &&) = default;
+	MVEFILE &operator=(MVEFILE &&) = default;
 	~MVEFILE();
-	stream_type *stream = nullptr;
+	RWops_ptr stream{};
 	std::vector<uint8_t> cur_chunk;
 	std::size_t next_segment = 0;
 };
@@ -100,8 +103,20 @@ struct MVESTREAM
 	MVESTREAM();
 	~MVESTREAM();
 	std::unique_ptr<MVEFILE> movie;
-	void *context = nullptr;
-	enumerated_array<MVESEGMENTHANDLER, 32, mve_opcode> handlers{};
+	uint8_t timer_created{};
+
+	int handle_mve_segment_endofstream();
+	int handle_mve_segment_endofchunk();
+	int handle_mve_segment_createtimer(const unsigned char *data);
+	int handle_mve_segment_initaudiobuffers(unsigned char minor, const unsigned char *data);
+	int handle_mve_segment_startstopaudio();
+	int handle_mve_segment_initvideobuffers(unsigned char minor, const unsigned char *data);
+	int handle_mve_segment_displayvideo();
+	int handle_mve_segment_audioframedata(mve_opcode major, const unsigned char *data);
+	int handle_mve_segment_initvideomode(const unsigned char *data);
+	int handle_mve_segment_setpalette(const unsigned char *data);
+	int handle_mve_segment_setdecodingmap(const unsigned char *data, int len);
+	int handle_mve_segment_videodata(const unsigned char *data, int len);
 };
 
 struct MVESTREAM_deleter_t
@@ -113,12 +128,12 @@ struct MVESTREAM_deleter_t
 };
 
 typedef std::unique_ptr<MVESTREAM, MVESTREAM_deleter_t> MVESTREAM_ptr_t;
-int  MVE_rmPrepMovie(MVESTREAM_ptr_t &, MVEFILE::stream_type *stream, int x, int y);
+MVESTREAM_ptr_t MVE_rmPrepMovie(RWops_ptr stream, int x, int y);
 
 /*
  * open an MVE stream
  */
-MVESTREAM_ptr_t mve_open(MVEFILE::stream_type *stream);
+MVESTREAM_ptr_t mve_open(RWops_ptr stream);
 
 /*
  * reset an MVE stream
@@ -126,18 +141,10 @@ MVESTREAM_ptr_t mve_open(MVEFILE::stream_type *stream);
 void mve_reset(MVESTREAM *movie);
 
 /*
- * set segment type handler
- */
-void mve_set_handler(MVESTREAM &movie, mve_opcode major, MVESEGMENTHANDLER handler);
-
-/*
- * set segment handler context
- */
-void mve_set_handler_context(MVESTREAM *movie, void *context);
-
-/*
  * play next chunk
  */
 int mve_play_next_chunk(MVESTREAM &movie);
 
-unsigned int MovieFileRead(MVEFILE::stream_type *handle, void *buf, unsigned int count);
+unsigned MovieFileRead(SDL_RWops *handle, std::span<uint8_t> buf);
+
+}

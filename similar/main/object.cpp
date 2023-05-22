@@ -914,8 +914,8 @@ void init_objects()
 
 //after calling init_object(), the network code has grabbed specific
 //object slots without allocating them.  Go though the objects & build
-//the free list, then set the apporpriate globals
-void special_reset_objects(d_level_unique_object_state &LevelUniqueObjectState)
+//the free list, then set the appropriate globals
+void special_reset_objects(d_level_unique_object_state &LevelUniqueObjectState, const d_robot_info_array &Robot_info)
 {
 	unsigned num_objects = MAX_OBJECTS;
 
@@ -924,26 +924,35 @@ void special_reset_objects(d_level_unique_object_state &LevelUniqueObjectState)
 	assert(Objects.front().type != OBJ_NONE);		//0 should be used
 
 	DXX_POISON_VAR(LevelUniqueObjectState.free_obj_list, 0xfd);
+#if defined(DXX_BUILD_DESCENT_I)
+	/* Descent 1 does not have a guidebot, so there is nothing to fix up.  For
+	 * simplicity, both games pass the parameter.
+	 */
+	(void)Robot_info;
+#elif defined(DXX_BUILD_DESCENT_II)
+	icobjidx_t Buddy_objnum = object_none;
+#endif
 	for (objnum_t i = MAX_OBJECTS; i--;)
-		if (Objects.vcptr(i)->type == OBJ_NONE)
+	{
+		const auto &obj = *Objects.vcptr(i);
+#if defined(DXX_BUILD_DESCENT_II)
+		if (obj.type == OBJ_ROBOT)
+		{
+			auto &robptr = Robot_info[get_robot_id(obj)];
+			if (robot_is_companion(robptr))
+				Buddy_objnum = i;
+		}
+#endif
+		if (obj.type == OBJ_NONE)
 			LevelUniqueObjectState.free_obj_list[--num_objects] = i;
 		else
 			if (i > Highest_object_index)
 				Objects.set_count(i + 1);
+	}
+#if defined(DXX_BUILD_DESCENT_II)
+	LevelUniqueObjectState.BuddyState.Buddy_objnum = Buddy_objnum;
+#endif
 	LevelUniqueObjectState.num_objects = num_objects;
-}
-
-namespace {
-
-//link the object into the list for its segment
-void obj_link(fvmobjptr &vmobjptr, const vmobjptridx_t obj, const vmsegptridx_t segnum)
-{
-	assert(obj->segnum == segment_none);
-	assert(obj->next == object_none);
-	assert(obj->prev == object_none);
-	obj_link_unchecked(vmobjptr, obj, segnum);
-}
-
 }
 
 void obj_link_unchecked(fvmobjptr &vmobjptr, const vmobjptridx_t obj, const vmsegptridx_t segnum)
@@ -1295,6 +1304,8 @@ void obj_delete(d_level_unique_object_state &LevelUniqueObjectState, segment_arr
 			}
 		}
 	}
+	else if (LevelUniqueObjectState.BuddyState.Buddy_objnum == obj)
+		LevelUniqueObjectState.BuddyState.Buddy_objnum = object_none;
 #endif
 
 	if (obj == Viewer)		//deleting the viewer?
@@ -2128,7 +2139,7 @@ window_event_result endlevel_move_all_objects(const d_level_shared_robot_info_st
 //--unused--
 //--unused-- }
 
-
+#if DXX_USE_EDITOR
 //make object array non-sparse
 void compress_objects(void)
 {
@@ -2151,14 +2162,22 @@ void compress_objects(void)
 
 			*start_objp = *h;
 
-#if DXX_USE_EDITOR
 			if (Cur_object_index == Highest_object_index)
 				Cur_object_index = start_i;
-			#endif
 
 			h->type = OBJ_NONE;
 
-			obj_link(Objects.vmptr, start_objp, vmsegptridx(segnum_copy));
+			{
+				//link the object into the list for its segment
+				const auto &&segnum = vmsegptridx(segnum_copy);
+#ifndef NDEBUG
+				const auto &obj = *start_objp;
+				assert(obj.segnum == segment_none);
+				assert(obj.next == object_none);
+				assert(obj.prev == object_none);
+#endif
+				obj_link_unchecked(Objects.vmptr, start_objp, segnum);
+			}
 
 			while (vmobjptr(static_cast<objnum_t>(--highest))->type == OBJ_NONE)
 			{
@@ -2171,6 +2190,7 @@ void compress_objects(void)
 	}
 	reset_objects(LevelUniqueObjectState, LevelUniqueObjectState.num_objects);
 }
+#endif
 
 //called after load.  Takes number of objects,  and objects should be
 //compressed.  resets free list, marks unused objects as unused
@@ -2182,6 +2202,10 @@ void reset_objects(d_level_unique_object_state &LevelUniqueObjectState, const un
 	auto &Objects = LevelUniqueObjectState.get_objects();
 	assert(LevelUniqueObjectState.num_objects < Objects.size());
 	Objects.set_count(n_objs);
+#if defined(DXX_BUILD_DESCENT_II)
+	if (LevelUniqueObjectState.BuddyState.Buddy_objnum.get_unchecked_index() >= n_objs)
+		LevelUniqueObjectState.BuddyState.Buddy_objnum = object_none;
+#endif
 
 	for (objnum_t i = n_objs; i < MAX_OBJECTS; ++i)
 	{

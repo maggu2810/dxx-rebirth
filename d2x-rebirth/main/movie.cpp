@@ -65,7 +65,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "partial_range.h"
 #include "d_zip.h"
 
-namespace dsx {
+namespace d2x {
 
 namespace {
 
@@ -114,17 +114,14 @@ struct movie_pause_window : window
 
 }
 
-}
-
-unsigned int MovieFileRead(SDL_RWops *const handle, void *buf, unsigned int count)
+unsigned MovieFileRead(SDL_RWops *const handle, const std::span<uint8_t> buf)
 {
-	const unsigned numread = SDL_RWread(handle, buf, 1, count);
+	const auto count = buf.size();
+	const auto numread = SDL_RWread(handle, buf.data(), 1, count);
 	return (numread == count);
 }
 
 //-----------------------------------------------------------------------
-
-namespace dsx {
 
 //filename will actually get modified to be either low-res or high-res
 //returns status.  see values in movie.h
@@ -144,7 +141,7 @@ movie_play_status PlayMovie(const std::span<const char> subtitles, const char *c
 		digi_close();
 
 	// Start sound
-	MVE_sndInit(!CGameArg.SndNoSound ? 1 : -1);
+	MVE_sndInit(!CGameArg.SndNoSound ? MVE_play_sounds::enabled : MVE_play_sounds::silent);
 
 	const auto ret = RunMovie(name, subtitles, !GameArg.GfxSkipHiresMovie, must_have, -1, -1);
 
@@ -156,8 +153,6 @@ movie_play_status PlayMovie(const std::span<const char> subtitles, const char *c
 
 	Screen_mode = -1;		//force screen reset
 	return ret;
-}
-
 }
 
 void MovieShowFrame(const uint8_t *buf, int dstx, int dsty, int bufw, int bufh, int sw, int sh)
@@ -232,8 +227,6 @@ void MovieSetPalette(const unsigned char *p, unsigned start, unsigned count)
 	//movie libs palette into our array
 	memcpy(&gr_palette[start],p+start*3,count*3);
 }
-
-namespace dsx {
 
 namespace {
 
@@ -333,7 +326,7 @@ window_event_result movie::event_handler(const d_event &event)
 				const auto f = frame_num;
 			if (!paused)
 			{
-				result = MVE_rmStepMovie(*pMovie.get());
+				result = MVE_rmStepMovie(*pMovie);
 				if (result == MVE_StepStatus::EndOfFile)
 					return window_event_result::close;
 				if (result != MVE_StepStatus::Continue)
@@ -374,7 +367,7 @@ movie_play_status RunMovie(const char *const filename, const std::span<const cha
 		return movie_play_status::skipped;
 	}
 	MVESTREAM_ptr_t mvestream;
-	if (MVE_rmPrepMovie(mvestream, filehndl.get(), dx, dy))
+	if (!(mvestream = MVE_rmPrepMovie(std::move(filehndl), dx, dy)))
 	{
 		return movie_play_status::skipped;
 	}
@@ -412,20 +405,16 @@ movie_play_status RunMovie(const char *const filename, const std::span<const cha
 }
 
 //returns 1 if frame updated ok
-int RotateRobot(MVESTREAM_ptr_t &pMovie, SDL_RWops *const RoboFile)
+int RotateRobot(MVESTREAM *const pMovie)
 {
-	auto err = MVE_rmStepMovie(*pMovie.get());
+	auto err = MVE_rmStepMovie(*pMovie);
 	gr_palette_load(gr_palette);
 
 	if (err == MVE_StepStatus::EndOfFile)     //end of movie, so reset
 	{
-		SDL_RWseek(RoboFile, 0, SEEK_SET);
-		if (MVE_rmPrepMovie(pMovie, RoboFile, SWIDTH / 2.3, SHEIGHT / 2.3))
-		{
-			Int3();
-			return 0;
-		}
-		err = MVE_rmStepMovie(*pMovie.get());
+		SDL_RWseek(pMovie->movie->stream.get(), 0, SEEK_SET);
+		mve_reset(pMovie);
+		err = MVE_rmStepMovie(*pMovie);
 	}
 	if (err != MVE_StepStatus::Continue)
 	{
@@ -441,14 +430,14 @@ void DeInitRobotMovie(MVESTREAM_ptr_t &pMovie)
 	pMovie.reset();
 }
 
-RWops_ptr InitRobotMovie(const char *filename, MVESTREAM_ptr_t &pMovie)
+const MVESTREAM *InitRobotMovie(const char *filename, MVESTREAM_ptr_t &pMovie)
 {
 	if (GameArg.SysNoMovies)
 		return nullptr;
 
 	con_printf(CON_DEBUG, "RoboFile=%s", filename);
 
-	MVE_sndInit(-1);        //tell movies to play no sound for robots
+	MVE_sndInit(MVE_play_sounds::silent);        //tell movies to play no sound for robots
 
 	auto &&[RoboFile, physfserr] = PHYSFSRWOPS_openRead(filename);
 	if (!RoboFile)
@@ -456,12 +445,12 @@ RWops_ptr InitRobotMovie(const char *filename, MVESTREAM_ptr_t &pMovie)
 		con_printf(CON_URGENT, "Failed to open movie <%s>: %s", filename, PHYSFS_getErrorByCode(physfserr));
 		return nullptr;
 	}
-	if (MVE_rmPrepMovie(pMovie, RoboFile.get(), SWIDTH / 2.3, SHEIGHT / 2.3))
+	if (!(pMovie = MVE_rmPrepMovie(std::move(RoboFile), SWIDTH / 2.3, SHEIGHT / 2.3)))
 	{
 		Int3();
 		return nullptr;
 	}
-	return std::move(RoboFile);
+	return pMovie.get();
 }
 
 namespace {

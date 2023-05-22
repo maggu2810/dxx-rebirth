@@ -36,25 +36,26 @@ COPYRIGHT 1993-1998 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "ogl_init.h"
 #include "config.h"
 
-#include "compiler-range_for.h"
+#include "d_array.h"
 #include "d_enumerate.h"
+#include "partial_range.h"
 
 namespace {
 
-constexpr std::array<char[16], 5> Gamefont_filenames_l{{
-	"font1-1.fnt", // Font 0
-	"font2-1.fnt", // Font 1
-	"font2-2.fnt", // Font 2
-	"font2-3.fnt", // Font 3
-	"font3-1.fnt"  // Font 4
+constexpr std::array<std::array<char, 16>, 5> Gamefont_filenames_l{{
+	{"font1-1.fnt"}, // Font 0
+	{"font2-1.fnt"}, // Font 1
+	{"font2-2.fnt"}, // Font 2
+	{"font2-3.fnt"}, // Font 3
+	{"font3-1.fnt"}  // Font 4
 }};
 
-constexpr std::array<char[16], 5> Gamefont_filenames_h{{
-	"font1-1h.fnt", // Font 0
-	"font2-1h.fnt", // Font 1
-	"font2-2h.fnt", // Font 2
-	"font2-3h.fnt", // Font 3
-	"font3-1h.fnt"  // Font 4
+constexpr std::array<std::array<char, 16>, 5> Gamefont_filenames_h{{
+	{"font1-1h.fnt"}, // Font 0
+	{"font2-1h.fnt"}, // Font 1
+	{"font2-2h.fnt"}, // Font 2
+	{"font2-3h.fnt"}, // Font 3
+	{"font3-1h.fnt"}  // Font 4
 }};
 
 static int Gamefont_installed;
@@ -73,15 +74,18 @@ struct a_gamefont_conf
 {
 	int x;
 	int y;
-	union{
-		char name[64];//hrm.
-	} f;
+	std::array<char, 16> name;
 };
 
 struct gamefont_conf
 {
-	int num,cur;
-	std::array<a_gamefont_conf, 10> font;
+	enum class font_index : std::size_t
+	{
+		None = SIZE_MAX,
+	};
+	std::size_t num;
+	font_index cur;
+	enumerated_array<a_gamefont_conf, 10, font_index> font;
 };
 
 static std::array<gamefont_conf, MAX_FONTS> font_conf;
@@ -89,19 +93,20 @@ static std::array<gamefont_conf, MAX_FONTS> font_conf;
 static void gamefont_unloadfont(int gf)
 {
 	if (Gamefonts[gf]){
-		font_conf[gf].cur=-1;
+		font_conf[gf].cur = gamefont_conf::font_index::None;
 		Gamefonts[gf].reset();
 	}
 }
 
-static void gamefont_loadfont(grs_canvas &canvas, int gf, int fi)
+static void gamefont_loadfont(grs_canvas &canvas, const int gf, const gamefont_conf::font_index fi)
 {
-	if (PHYSFSX_exists(font_conf[gf].font[fi].f.name,1)){
+	if (PHYSFS_exists(font_conf[gf].font[fi].name.data()))
+	{
 		gamefont_unloadfont(gf);
-		Gamefonts[gf] = gr_init_font(canvas, font_conf[gf].font[fi].f.name);
+		Gamefonts[gf] = gr_init_font(canvas, font_conf[gf].font[fi].name);
 	}else {
 		if (!Gamefonts[gf]){
-			font_conf[gf].cur=-1;
+			font_conf[gf].cur = gamefont_conf::font_index::None;
 			Gamefonts[gf] = gr_init_font(canvas, Gamefont_filenames_l[gf]);
 		}
 		return;
@@ -112,18 +117,19 @@ static void gamefont_loadfont(grs_canvas &canvas, int gf, int fi)
 }
 
 void gamefont_choose_game_font(int scrx,int scry){
-	int close=-1,m=-1;
 	if (!Gamefont_installed) return;
 
+	int close=-1;
+	auto m = gamefont_conf::font_index::None;
 	for (const auto &&[gf, fc] : enumerate(font_conf))
 	{
-		for (int i = 0; i < fc.num; ++i)
-			if ((scrx >= fc.font[i].x && close < fc.font[i].x) && (scry >= fc.font[i].y && close < fc.font[i].y))
+		for (const auto &&[i, f] : enumerate(partial_range(fc.font, fc.num)))
+			if ((scrx >= f.x && close < f.x) && (scry >= f.y && close < f.y))
 			{
-				close = fc.font[i].x;
+				close = f.x;
 				m=i;
 			}
-		if (m<0)
+		if (m == gamefont_conf::font_index::None)
 			Error("no gamefont found for %ix%i\n",scrx,scry);
 
 #if DXX_USE_OGL
@@ -160,25 +166,27 @@ void gamefont_choose_game_font(int scrx,int scry){
 
 namespace {
 
-static void addfontconf(int gf, int x, int y, const char *const fn)
+static void addfontconf(int gf, int x, int y, const std::array<char, 16> &fn)
 {
-	if (!PHYSFSX_exists(fn,1))
+	if (!PHYSFS_exists(fn.data()))
 		return;
 
-	for (int i=0;i<font_conf[gf].num;i++){
-		if (font_conf[gf].font[i].x==x && font_conf[gf].font[i].y==y){
-			if (i==font_conf[gf].cur)
+	auto &fc = font_conf[gf];
+	for (const auto &&[i, f] : enumerate(partial_range(fc.font, fc.num)))
+		if (f.x == x && f.y == y)
+		{
+			if (i == fc.cur)
 				gamefont_unloadfont(gf);
-			strcpy(font_conf[gf].font[i].f.name,fn);
-			if (i==font_conf[gf].cur)
+			f.name = fn;
+			if (i == fc.cur)
 				gamefont_loadfont(*grd_curcanv, gf, i);
 			return;
 		}
-	}
-	font_conf[gf].font[font_conf[gf].num].x=x;
-	font_conf[gf].font[font_conf[gf].num].y=y;
-	strcpy(font_conf[gf].font[font_conf[gf].num].f.name,fn);
-	font_conf[gf].num++;
+	auto &f = fc.font[(gamefont_conf::font_index{fc.num})];
+	++ fc.num;
+	f.x = x;
+	f.y = y;
+	f.name = fn;
 }
 
 }
