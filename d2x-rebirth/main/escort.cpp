@@ -67,6 +67,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "escort.h"
 #include "vclip.h"
 #include "segiter.h"
+#include "backports-ranges.h"
 #include "compiler-range_for.h"
 #include "d_enumerate.h"
 #include "d_levelstate.h"
@@ -671,15 +672,11 @@ static icobjidx_t exists_in_mine_2(const unique_segment &segp, const int objtype
 }
 
 //	-----------------------------------------------------------------------------
-static std::pair<icsegidx_t, d_unique_buddy_state::Escort_goal_reachability> exists_fuelcen_in_mine(const vcsegidx_t start_seg, const player_flags powerup_flags)
+static std::pair<icsegidx_t, d_unique_buddy_state::Escort_goal_reachability> exists_fuelcen_in_mine(const object &Buddy_objp, const player_flags powerup_flags)
 {
-	auto &Objects = LevelUniqueObjectState.Objects;
+	const vcsegidx_t start_seg{Buddy_objp.segnum};
 	auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
-	auto &vmobjptr = Objects.vmptr;
 	std::array<segnum_t, MAX_SEGMENTS> bfs_list;
-	auto &BuddyState = LevelUniqueObjectState.BuddyState;
-	const auto Buddy_objnum = BuddyState.Buddy_objnum;
-	const auto &&Buddy_objp = vmobjptr(Buddy_objnum);
 	auto &robptr = Robot_info[get_robot_id(Buddy_objp)];
 	const auto length = create_bfs_list(Buddy_objp, robptr, start_seg, powerup_flags, bfs_list);
 	{
@@ -692,7 +689,7 @@ static std::pair<icsegidx_t, d_unique_buddy_state::Escort_goal_reachability> exi
 			return {*i, d_unique_buddy_state::Escort_goal_reachability::reachable};
 	}
 	{
-		const auto &&rh = make_range(vcsegptridx);
+		const ranges::subrange rh{vcsegptridx};
 		const auto &&i = ranges::find(rh, segment_special::fuelcen, &shared_segment::special);
 		if (i != rh.end())
 			return {*i, d_unique_buddy_state::Escort_goal_reachability::unreachable};
@@ -934,7 +931,7 @@ static void escort_create_path_to_goal(const vmobjptridx_t objp, const robot_inf
 				break;
 			case ESCORT_GOAL_ENERGYCEN:
 				{
-					const auto &&ef = exists_fuelcen_in_mine(objp->segnum, powerup_flags);
+					const auto &&ef = exists_fuelcen_in_mine(objp, powerup_flags);
 					set_escort_goal_non_object(BuddyState);
 				if (ef.second != d_unique_buddy_state::Escort_goal_reachability::unreachable)
 					escort_go_to_goal(objp, robptr, aip, ef.first);
@@ -1102,23 +1099,21 @@ static void bash_buddy_weapon_info(d_unique_buddy_state &BuddyState, fvmobjptrid
 }
 
 //	-----------------------------------------------------------------------------
-static int maybe_buddy_fire_mega(const vmobjptridx_t objp)
+static int maybe_buddy_fire_mega(const vmobjptridx_t objp, const vcobjptridx_t Buddy_objp)
 {
 	auto &BuddyState = LevelUniqueObjectState.BuddyState;
 	auto &Objects = LevelUniqueObjectState.Objects;
-	const auto Buddy_objnum = BuddyState.Buddy_objnum;
-	const auto &&buddy_objp = objp.absolute_sibling(Buddy_objnum);
-	const auto &&[dist, vec_to_robot] = vm_vec_normalize_quick_with_magnitude(vm_vec_sub(buddy_objp->pos, objp->pos));
+	const auto &&[dist, vec_to_robot] = vm_vec_normalize_quick_with_magnitude(vm_vec_sub(Buddy_objp->pos, objp->pos));
 
 	if (dist > F1_0*100)
 		return 0;
 
-	const auto dot = vm_vec_dot(vec_to_robot, buddy_objp->orient.fvec);
+	const auto dot = vm_vec_dot(vec_to_robot, Buddy_objp->orient.fvec);
 
 	if (dot < F1_0/2)
 		return 0;
 
-	if (!object_to_object_visibility(buddy_objp, objp, FQ_TRANSWALL))
+	if (!object_to_object_visibility(Buddy_objp, objp, FQ_TRANSWALL))
 		return 0;
 
 	if (Weapon_info[weapon_id_type::MEGA_ID].render == weapon_info::render_type::laser) {
@@ -1129,7 +1124,8 @@ static int maybe_buddy_fire_mega(const vmobjptridx_t objp)
 
 	buddy_message("GAHOOGA!");
 
-	const imobjptridx_t weapon_objnum = Laser_create_new_easy(LevelSharedRobotInfoState.Robot_info, buddy_objp->orient.fvec, buddy_objp->pos, objp, weapon_id_type::MEGA_ID, weapon_sound_flag::audible);
+	auto &buddy = *Buddy_objp;
+	const imobjptridx_t weapon_objnum = Laser_create_new_easy(LevelSharedRobotInfoState.Robot_info, buddy.orient.fvec, buddy.pos, objp, weapon_id_type::MEGA_ID, weapon_sound_flag::audible);
 
 	if (weapon_objnum != object_none)
 		bash_buddy_weapon_info(BuddyState, Objects.vmptridx, weapon_objnum);
@@ -1138,12 +1134,10 @@ static int maybe_buddy_fire_mega(const vmobjptridx_t objp)
 }
 
 //-----------------------------------------------------------------------------
-static int maybe_buddy_fire_smart(const vmobjptridx_t objp)
+static int maybe_buddy_fire_smart(const vmobjptridx_t objp, const vcobjptridx_t buddy_objp)
 {
 	auto &BuddyState = LevelUniqueObjectState.BuddyState;
 	auto &Objects = LevelUniqueObjectState.Objects;
-	const auto Buddy_objnum = BuddyState.Buddy_objnum;
-	const auto &&buddy_objp = objp.absolute_sibling(Buddy_objnum);
 	fix		dist;
 
 	dist = vm_vec_dist_quick(buddy_objp->pos, objp->pos);
@@ -1165,7 +1159,7 @@ static int maybe_buddy_fire_smart(const vmobjptridx_t objp)
 }
 
 //	-----------------------------------------------------------------------------
-static void do_buddy_dude_stuff(void)
+static void do_buddy_dude_stuff(const vmobjptridx_t buddy_objp)
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &BuddyState = LevelUniqueObjectState.BuddyState;
@@ -1176,11 +1170,11 @@ static void do_buddy_dude_stuff(void)
 	if (BuddyState.Buddy_last_missile_time + F1_0*2 < GameTime64) {
 		//	See if a robot potentially in view cone
 		auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
-		auto &&rh = make_range(vmobjptridx);
+		const ranges::subrange rh{vmobjptridx};
 		range_for (const auto &&objp, rh)
 		{
 			if ((objp->type == OBJ_ROBOT) && !Robot_info[get_robot_id(objp)].companion)
-				if (maybe_buddy_fire_mega(objp)) {
+				if (maybe_buddy_fire_mega(objp, buddy_objp)) {
 					BuddyState.Buddy_last_missile_time = GameTime64;
 					return;
 				}
@@ -1190,7 +1184,7 @@ static void do_buddy_dude_stuff(void)
 		range_for (const auto &&objp, rh)
 		{
 			if ((objp->type == OBJ_ROBOT) && !Robot_info[get_robot_id(objp)].companion)
-				if (maybe_buddy_fire_smart(objp)) {
+				if (maybe_buddy_fire_smart(objp, buddy_objp)) {
 					BuddyState.Buddy_last_missile_time = GameTime64;
 					return;
 				}
@@ -1242,7 +1236,7 @@ void do_escort_frame(const vmobjptridx_t objp, const robot_info &robptr, const o
 	}
 
 	if (cheats.buddyangry)
-		do_buddy_dude_stuff();
+		do_buddy_dude_stuff(objp);
 
 	{
 		const auto buddy_sorry_time = BuddyState.Buddy_sorry_time;
