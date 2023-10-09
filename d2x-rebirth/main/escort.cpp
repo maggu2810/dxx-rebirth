@@ -509,9 +509,9 @@ static void thief_message_str(const char * str)
 	HUD_init_message(HM_DEFAULT, "%c%cTHIEF:%c%c %s", 1, BM_XRGB(28, 0, 0), 1, BM_XRGB(0, 31, 0), str);
 }
 
-static void thief_message(const char * format, ... ) __attribute_format_printf(1, 2);
+static void thief_message(const char *) = delete;
+__attribute_format_printf(1, 2)
 static void thief_message(const char * format, ... )
-#define thief_message(F,...)	dxx_call_printf_checked(thief_message,thief_message_str,(),(F),##__VA_ARGS__)
 {
 
 	char	new_format[128];
@@ -619,7 +619,7 @@ namespace {
 
 //	-----------------------------------------------------------------------------
 //	Return id of boss.
-static int get_boss_id(void)
+static robot_id get_boss_id(void)
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vcobjptr = Objects.vcptr;
@@ -629,17 +629,17 @@ static int get_boss_id(void)
 		if (objp->type == OBJ_ROBOT)
 		{
 			const auto objp_id = get_robot_id(objp);
-			if (Robot_info[objp_id].boss_flag)
+			if (Robot_info[objp_id].boss_flag != boss_robot_id::None)
 				return objp_id;
 		}
 	}
-	return -1;
+	return robot_id::None;
 }
 
 //	-----------------------------------------------------------------------------
 //	Return object index if object of objtype, objid exists in mine, else return -1
 //	"special" is used to find objects spewed by player which is hacked into flags field of powerup.
-static icobjidx_t exists_in_mine_2(const unique_segment &segp, const int objtype, const int objid, const int special)
+static icobjidx_t exists_in_mine_2(const unique_segment &segp, const std::optional<object_type_t> objtype, const std::optional<uint8_t> objid, const int special)
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vcobjptridx = Objects.vcptridx;
@@ -652,20 +652,35 @@ static icobjidx_t exists_in_mine_2(const unique_segment &segp, const int objtype
 					return curobjp;
 			}
 
-			if (curobjp->type == objtype) {
+			if (!objtype)
+				continue;
+			const auto t = *objtype;
+			if (curobjp->type == t) {
 				//	Don't find escort robots if looking for robot!
-				if ((curobjp->type == OBJ_ROBOT) && (Robot_info[get_robot_id(curobjp)].companion))
+				if (t == OBJ_ROBOT && (Robot_info[get_robot_id(curobjp)].companion))
 					;
-				else if (objid == -1) {
+				else if (!objid)
+				{
+					/* If no object id is specified, then any object of the
+					 * correct type is acceptable.
+					 */
 						return curobjp;
-				} else if (curobjp->id == objid)
+				}
+				else if (curobjp->id == *objid)
+					/* A specific object id is required, and the current object
+					 * satisfies the requirement.
+					 */
 					return curobjp;
 			}
 
-			if (objtype == OBJ_POWERUP && curobjp->type == OBJ_ROBOT)
+			if (t == OBJ_POWERUP && objid && curobjp->type == OBJ_ROBOT)
+				/* As a special case, if seeking a specific powerup and the
+				 * current object is a robot that will drop that powerup, then
+				 * consider the robot to be a match.
+				 */
 				if (curobjp->contains_count)
-					if (curobjp->contains_type == OBJ_POWERUP)
-						if (curobjp->contains_id == objid)
+					if (curobjp->contains.type == contained_object_type::powerup)
+						if (curobjp->contains_id == *objid)
 							return curobjp;
 	}
 	return object_none;
@@ -701,7 +716,7 @@ static std::pair<icsegidx_t, d_unique_buddy_state::Escort_goal_reachability> exi
 //	If special == ESCORT_GOAL_PLAYER_SPEW, then looking for any object spewed by player.
 //	-1 means object does not exist in mine.
 //	-2 means object does exist in mine, but buddy-bot can't reach it (eg, behind triggered wall)
-static std::pair<icobjidx_t, d_unique_buddy_state::Escort_goal_reachability> exists_in_mine(const vcsegidx_t start_seg, const int objtype, const int objid, const int special, const player_flags powerup_flags)
+static std::pair<icobjidx_t, d_unique_buddy_state::Escort_goal_reachability> exists_in_mine(const vcsegidx_t start_seg, const std::optional<object_type_t> objtype, const std::optional<uint8_t> objid, const int special, const player_flags powerup_flags)
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
@@ -866,7 +881,7 @@ static void escort_go_to_goal(const vmobjptridx_t objp, const robot_info &robptr
 }
 
 //	-----------------------------------------------------------------------------
-static imsegidx_t escort_get_goal_segment(const object_base &buddy_obj, const int objtype, const int objid, const player_flags powerup_flags)
+static imsegidx_t escort_get_goal_segment(const object_base &buddy_obj, const object_type_t objtype, const std::optional<uint8_t> objid, const player_flags powerup_flags)
 {
 	auto &BuddyState = LevelUniqueObjectState.BuddyState;
 	auto &Objects = LevelUniqueObjectState.Objects;
@@ -914,7 +929,7 @@ static void escort_create_path_to_goal(const vmobjptridx_t objp, const robot_inf
 				goal_seg = escort_get_goal_segment(objp, OBJ_POWERUP, POW_KEY_RED, powerup_flags);
 				break;
 			case ESCORT_GOAL_CONTROLCEN:
-				goal_seg = escort_get_goal_segment(objp, OBJ_CNTRLCEN, -1, powerup_flags);
+				goal_seg = escort_get_goal_segment(objp, OBJ_CNTRLCEN, std::nullopt, powerup_flags);
 				break;
 			case ESCORT_GOAL_EXIT:
 				goal_seg = find_exit_segment();
@@ -945,17 +960,17 @@ static void escort_create_path_to_goal(const vmobjptridx_t objp, const robot_inf
 				goal_seg = escort_get_goal_segment(objp, OBJ_POWERUP, POW_SHIELD_BOOST, powerup_flags);
 				break;
 			case ESCORT_GOAL_POWERUP:
-				goal_seg = escort_get_goal_segment(objp, OBJ_POWERUP, -1, powerup_flags);
+				goal_seg = escort_get_goal_segment(objp, OBJ_POWERUP, std::nullopt, powerup_flags);
 				break;
 			case ESCORT_GOAL_ROBOT:
-				goal_seg = escort_get_goal_segment(objp, OBJ_ROBOT, -1, powerup_flags);
+				goal_seg = escort_get_goal_segment(objp, OBJ_ROBOT, std::nullopt, powerup_flags);
 				break;
 			case ESCORT_GOAL_HOSTAGE:
-				goal_seg = escort_get_goal_segment(objp, OBJ_HOSTAGE, -1, powerup_flags);
+				goal_seg = escort_get_goal_segment(objp, OBJ_HOSTAGE, std::nullopt, powerup_flags);
 				break;
 			case ESCORT_GOAL_PLAYER_SPEW:
 				{
-					const auto &&egi = exists_in_mine(objp->segnum, -1, -1, ESCORT_GOAL_PLAYER_SPEW, powerup_flags);
+					const auto &&egi = exists_in_mine(objp->segnum, std::nullopt, std::nullopt, ESCORT_GOAL_PLAYER_SPEW, powerup_flags);
 					BuddyState.Escort_goal_objidx = egi.first;
 					BuddyState.Escort_goal_reachable = egi.second;
 					if (egi.second != d_unique_buddy_state::Escort_goal_reachability::unreachable)
@@ -966,11 +981,9 @@ static void escort_create_path_to_goal(const vmobjptridx_t objp, const robot_inf
 				}
 				break;
 			case ESCORT_GOAL_BOSS: {
-				int	boss_id;
-	
-				boss_id = get_boss_id();
-				Assert(boss_id != -1);
-				goal_seg = escort_get_goal_segment(objp, OBJ_ROBOT, boss_id, powerup_flags);
+				const auto boss_id = get_boss_id();
+				assert(boss_id != robot_id::None);
+				goal_seg = escort_get_goal_segment(objp, OBJ_ROBOT, underlying_value(boss_id), powerup_flags);
 				break;
 			}
 			default:
@@ -1118,11 +1131,11 @@ static int maybe_buddy_fire_mega(const vmobjptridx_t objp, const vcobjptridx_t B
 
 	if (Weapon_info[weapon_id_type::MEGA_ID].render == weapon_info::render_type::laser) {
 		con_puts(CON_VERBOSE, "Buddy can't fire mega (shareware)");
-		buddy_message("CLICK!");
+		buddy_message_str("CLICK!");
 		return 0;
 	}
 
-	buddy_message("GAHOOGA!");
+	buddy_message_str("GAHOOGA!");
 
 	auto &buddy = *Buddy_objp;
 	const imobjptridx_t weapon_objnum = Laser_create_new_easy(LevelSharedRobotInfoState.Robot_info, buddy.orient.fvec, buddy.pos, objp, weapon_id_type::MEGA_ID, weapon_sound_flag::audible);
@@ -1148,7 +1161,7 @@ static int maybe_buddy_fire_smart(const vmobjptridx_t objp, const vcobjptridx_t 
 	if (!object_to_object_visibility(buddy_objp, objp, FQ_TRANSWALL))
 		return 0;
 
-	buddy_message("WHAMMO!");
+	buddy_message_str("WHAMMO!");
 
 	const imobjptridx_t weapon_objnum = Laser_create_new_easy(LevelSharedRobotInfoState.Robot_info, buddy_objp->orient.fvec, buddy_objp->pos, objp, weapon_id_type::SMART_ID, weapon_sound_flag::audible);
 
@@ -1231,7 +1244,7 @@ void do_escort_frame(const vmobjptridx_t objp, const robot_info &robptr, const o
 			const auto ienergy = f2i(energy);
 			if (ienergy < 40)
 				if (ienergy & 4)
-						buddy_message("Hey, your headlight's on!");
+						buddy_message_str("Hey, your headlight's on!");
 		}
 	}
 
@@ -1421,7 +1434,7 @@ void do_snipe_frame(const vmobjptridx_t objp, const robot_info &robptr, const fi
 static fix64	Re_init_thief_time = 0x3f000000;
 
 //	----------------------------------------------------------------------
-void recreate_thief(const d_robot_info_array &Robot_info, const uint8_t thief_id)
+void recreate_thief(const d_robot_info_array &Robot_info, const robot_id thief_id)
 {
 	auto &LevelSharedVertexState = LevelSharedSegmentState.get_vertex_state();
 	auto &Vertices = LevelSharedVertexState.get_vertices();

@@ -126,7 +126,7 @@ int multi_can_move_robot(const vmobjptridx_t objnum, int agitation)
 	}
 
 	auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
-	if (Robot_info[get_robot_id(objrobot)].boss_flag && BossUniqueState.Boss_dying)
+	if (Robot_info[get_robot_id(objrobot)].boss_flag != boss_robot_id::None && BossUniqueState.Boss_dying)
 		return 0;
 	else if (objrobot.ctype.ai_info.REMOTE_OWNER == Player_num) // Already my robot!
 	{
@@ -265,7 +265,7 @@ int multi_add_controlled_robot(const vmobjptridx_t objnum, int agitation)
 	auto &objrobot = *objnum;
 #if defined(DXX_BUILD_DESCENT_II)
 	auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
-   if (Robot_info[get_robot_id(objrobot)].boss_flag) // this is a boss, so make sure he gets a slot
+	if (Robot_info[get_robot_id(objrobot)].boss_flag != boss_robot_id::None) // this is a boss, so make sure he gets a slot
 		agitation=(agitation*3)+Player_num;  
 #endif
 	if (objrobot.ctype.ai_info.REMOTE_SLOT_NUM > 0)
@@ -579,7 +579,7 @@ void multi_send_robot_explode(const imobjptridx_t objnum, objnum_t killer)
 	multi_delete_controlled_robot(objnum);
 }
 
-void multi_send_create_robot(const station_number station, const objnum_t objnum, const int type)
+void multi_send_create_robot(const station_number station, const objnum_t objnum, const robot_id type)
 {
 	multi_command<multiplayer_command_t::MULTI_CREATE_ROBOT> multibuf;
 	// Send create robot information
@@ -591,7 +591,7 @@ void multi_send_create_robot(const station_number station, const objnum_t objnum
 	static_assert(sizeof(underlying_value(station)) == 1);
 	multibuf[loc] = underlying_value(station);                         loc += 1;
 	PUT_INTEL_SHORT(&multibuf[loc], objnum);                  loc += 2;
-	multibuf[loc] = type;									loc += 1;
+	multibuf[loc] = underlying_value(type);					loc += 1;
 
 	map_objnum_local_to_local(objnum);
 
@@ -687,7 +687,7 @@ void multi_send_boss_stop_gate(objnum_t bossobjnum)
 void multi_send_boss_create_robot(vmobjidx_t bossobjnum, const vmobjptridx_t objrobot)
 {
 	map_objnum_local_to_local(objrobot);
-	multi_send_boss_action<boss_create_robot>(bossobjnum, objrobot, objrobot->segnum, get_robot_id(objrobot));
+	multi_send_boss_action<boss_create_robot>(bossobjnum, objrobot, objrobot->segnum, underlying_value(get_robot_id(objrobot)));
 }
 
 #define MAX_ROBOT_POWERUPS 4
@@ -705,7 +705,7 @@ static void multi_send_create_robot_powerups(const object_base &del_obj)
 	loc += 1;
 	multibuf[loc] = Player_num;									loc += 1;
 	multibuf[loc] = del_obj.contains_count;					loc += 1;
-	multibuf[loc] = del_obj.contains_type; 					loc += 1;
+	multibuf[loc] = underlying_value(del_obj.contains.type);	loc += 1;
 	multibuf[loc] = del_obj.contains_id;						loc += 1;
 	PUT_INTEL_SEGNUM(&multibuf[loc], del_obj.segnum);		        loc += 2;
 	multi_put_vector(&multibuf[loc], del_obj.pos);
@@ -851,7 +851,7 @@ void multi_do_robot_position(const playernum_t pnum, const multiplayer_rspan<mul
 	qpp.orient.x = GET_INTEL_SHORT(&buf[loc]);					loc += 2;
 	qpp.orient.y = GET_INTEL_SHORT(&buf[loc]);					loc += 2;
 	qpp.orient.z = GET_INTEL_SHORT(&buf[loc]);					loc += 2;
-	qpp.pos = multi_get_vector(&buf[loc]);
+	qpp.pos = multi_get_vector(buf.subspan<5 + 8, 12>());
 	loc += 12;
 	if (const auto s = segnum_t{GET_INTEL_SHORT(&buf[loc])}; vmsegidx_t::check_nothrow_index(s))
 	{
@@ -860,9 +860,9 @@ void multi_do_robot_position(const playernum_t pnum, const multiplayer_rspan<mul
 	}
 	else
 		return;
-	qpp.vel = multi_get_vector(&buf[loc]);
+	qpp.vel = multi_get_vector(buf.subspan<5 + 8 + 12 + 2, 12>());
 	loc += 12;
-	qpp.rotvel = multi_get_vector(&buf[loc]);
+	qpp.rotvel = multi_get_vector(buf.subspan<5 + 8 + 12 + 2 + 12, 12>());
 	extract_quaternionpos(robot, qpp);
 }
 
@@ -886,7 +886,7 @@ void multi_do_robot_fire(const multiplayer_rspan<multiplayer_command_t::MULTI_RO
 	const short remote_botnum = GET_INTEL_SHORT(&buf[loc]);
 	auto botnum = objnum_remote_to_local(remote_botnum, buf[loc+2]);                loc += 3;
 	const auto gun_num = buf[loc];                                                      loc += 1;
-	const auto fire = multi_get_vector(&buf[loc]);
+	const auto fire = multi_get_vector(buf.subspan<6, 12>());
 
 	if (botnum > Highest_object_index)
 		return;
@@ -945,7 +945,7 @@ int multi_explode_robot_sub(const d_robot_info_array &Robot_info, const vmobjptr
 	}
 
 	// Drop non-random KEY powerups locally only!
-	if (objrobot.contains_count > 0 && objrobot.contains_type == OBJ_POWERUP && (Game_mode & GM_MULTI_COOP) && objrobot.contains_id >= POW_KEY_BLUE && objrobot.contains_id <= POW_KEY_GOLD)
+	if (objrobot.contains_count > 0 && objrobot.contains.type == contained_object_type::powerup && (Game_mode & GM_MULTI_COOP) && objrobot.contains_id >= powerup_type_t::POW_KEY_BLUE && objrobot.contains_id <= powerup_type_t::POW_KEY_GOLD)
 	{
 		object_create_robot_egg(Robot_info, objrobot);
 	}
@@ -963,7 +963,7 @@ int multi_explode_robot_sub(const d_robot_info_array &Robot_info, const vmobjptr
 	if (robot_is_thief(Robot_info[robot_id]))
 		drop_stolen_items_local(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, Vclip, vmsegptridx(objrobot.segnum), objrobot.mtype.phys_info.velocity, objrobot.pos, LevelUniqueObjectState.ThiefState.Stolen_items);
 #endif
-	if (Robot_info[robot_id].boss_flag)
+	if (Robot_info[robot_id].boss_flag != boss_robot_id::None)
 	{
 		if (!BossUniqueState.Boss_dying)
 			start_boss_death_sequence(LevelUniqueObjectState.BossState, Robot_info, robot);
@@ -978,7 +978,7 @@ int multi_explode_robot_sub(const d_robot_info_array &Robot_info, const vmobjptr
 	else
 	{
 #if defined(DXX_BUILD_DESCENT_II)
-		if (robot_id == SPECIAL_REACTOR_ROBOT)
+		if (robot_id == robot_id::special_reactor)
 			special_reactor_stuff();
 #endif
 		// Kamikaze, explode right away, IN YOUR FACE!
@@ -1024,20 +1024,29 @@ void multi_do_create_robot(const d_robot_info_array &Robot_info, const d_vclip_a
 	auto &Station = LevelUniqueFuelcenterState.Station;
 	auto &Vertices = LevelSharedVertexState.get_vertices();
 	const auto untrusted_fuelcen_num = buf[2];
-	int type = buf[5];
+	const auto untrusted_robot_type = buf[5];
 
 	objnum_t objnum;
 	objnum = GET_INTEL_SHORT(&buf[3]);
 
-	if (!LevelUniqueFuelcenterState.Station.valid_index(untrusted_fuelcen_num))
-		return;
-	if (untrusted_fuelcen_num >= LevelUniqueFuelcenterState.Num_fuelcenters || pnum >= N_players)
-	{
-		Int3(); // Bogus data
-		return;
-	}
-
-	auto &robotcen = Station[(station_number{untrusted_fuelcen_num})];
+	const auto trusted_fuelcen_num = ({
+		const auto o = LevelUniqueFuelcenterState.Station.valid_index(untrusted_fuelcen_num);
+		if (!o)
+			return;
+		if (untrusted_fuelcen_num >= LevelUniqueFuelcenterState.Num_fuelcenters || pnum >= N_players)
+		{
+			Int3(); // Bogus data
+			return;
+		}
+		*o;
+	});
+	const auto trusted_robot_type = ({
+		const auto o = LevelSharedRobotInfoState.Robot_info.valid_index(untrusted_robot_type);
+		if (!o)
+			return;
+		*o;
+	});
+	auto &robotcen = Station[trusted_fuelcen_num];
 
 	// Play effect and sound
 
@@ -1050,12 +1059,11 @@ void multi_do_create_robot(const d_robot_info_array &Robot_info, const d_vclip_a
 	const auto &&robotcen_segp = vmsegptridx(robotcen.segnum);
 	auto &vcvertptr = Vertices.vcptr;
 	const auto &&cur_object_loc = compute_segment_center(vcvertptr, robotcen_segp);
-	if (const auto &&obj = object_create_explosion_without_damage(Vclip, robotcen_segp, cur_object_loc, i2f(10), VCLIP_MORPHING_ROBOT))
+	if (const auto &&obj = object_create_explosion_without_damage(Vclip, robotcen_segp, cur_object_loc, i2f(10), vclip_index::morphing_robot))
 		extract_orient_from_segment(vcvertptr, obj->orient, robotcen_segp);
-	if (Vclip[VCLIP_MORPHING_ROBOT].sound_num > -1)
-		digi_link_sound_to_pos(Vclip[VCLIP_MORPHING_ROBOT].sound_num, robotcen_segp, sidenum_t::WLEFT, cur_object_loc, 0, F1_0);
+	digi_link_sound_to_pos(Vclip[vclip_index::morphing_robot].sound_num, robotcen_segp, sidenum_t::WLEFT, cur_object_loc, 0, F1_0);
 
-	const auto &&obj = create_morph_robot(Robot_info, robotcen_segp, cur_object_loc, type);
+	const auto &&obj = create_morph_robot(Robot_info, robotcen_segp, cur_object_loc, trusted_robot_type);
 	if (obj == object_none)
 		return; // Cannot create object!
 	
@@ -1085,9 +1093,10 @@ void multi_recv_escort_goal(d_unique_buddy_state &BuddyState, const multiplayer_
 	update_buddy_state b;
 	multi_serialize_read(buf, b);
 	const auto Looking_for_marker = b.Looking_for_marker;
-	BuddyState.Looking_for_marker = MarkerState.imobjidx.valid_index(Looking_for_marker)
-		? static_cast<game_marker_index>(Looking_for_marker)
-		: game_marker_index::None;
+	BuddyState.Looking_for_marker = ({
+		const auto o = MarkerState.imobjidx.valid_index(Looking_for_marker);
+		o ? *o : game_marker_index::None;
+	});
 	BuddyState.Escort_special_goal = b.Escort_special_goal;
 	BuddyState.Last_buddy_key = b.Last_buddy_key;
 	BuddyState.Buddy_messages_suppressed = 0;
@@ -1110,7 +1119,7 @@ void multi_do_boss_teleport(const d_robot_info_array &Robot_info, const d_vclip_
 	if (!guarded_boss_obj)
 		return;
 	const auto &&boss_obj = *guarded_boss_obj;
-	if ((boss_obj->type != OBJ_ROBOT) || !(Robot_info[get_robot_id(boss_obj)].boss_flag))
+	if (boss_obj->type != OBJ_ROBOT || Robot_info[get_robot_id(boss_obj)].boss_flag == boss_robot_id::None)
 	{
 		Int3(); // Got boss actions for a robot who's not a boss?
 		return;
@@ -1127,7 +1136,7 @@ void multi_do_boss_teleport(const d_robot_info_array &Robot_info, const d_vclip_
 	const auto boss_dir = vm_vec_sub(vcobjptr(vcplayerptr(pnum)->objnum)->pos, boss_obj->pos);
 	vm_vector_2_matrix(boss_obj->orient, boss_dir, nullptr, nullptr);
 
-	digi_link_sound_to_pos( Vclip[VCLIP_MORPHING_ROBOT].sound_num, teleport_segnum, sidenum_t::WLEFT, boss_obj->pos, 0 , F1_0);
+	digi_link_sound_to_pos(Vclip[vclip_index::morphing_robot].sound_num, teleport_segnum, sidenum_t::WLEFT, boss_obj->pos, 0, F1_0);
 	digi_kill_sound_linked_to_object( boss_obj);
 	boss_link_see_sound(Robot_info, boss_obj);
 	ai_local		*ailp = &boss_obj->ctype.ai_info.ail;
@@ -1154,7 +1163,7 @@ void multi_do_boss_cloak(const multiplayer_rspan<multiplayer_command_t::MULTI_BO
 	if (!guarded_boss_obj)
 		return;
 	const auto &&boss_obj = *guarded_boss_obj;
-	if (boss_obj->type != OBJ_ROBOT || !Robot_info[get_robot_id(boss_obj)].boss_flag)
+	if (boss_obj->type != OBJ_ROBOT || Robot_info[get_robot_id(boss_obj)].boss_flag == boss_robot_id::None)
 	{
 		Int3(); // Got boss actions for a robot who's not a boss?
 		return;
@@ -1178,7 +1187,7 @@ void multi_do_boss_start_gate(const multiplayer_rspan<multiplayer_command_t::MUL
 	if (!guarded_boss_obj)
 		return;
 	const object_base &boss_obj = *guarded_boss_obj;
-	if (boss_obj.type != OBJ_ROBOT || !Robot_info[get_robot_id(boss_obj)].boss_flag)
+	if (boss_obj.type != OBJ_ROBOT || Robot_info[get_robot_id(boss_obj)].boss_flag == boss_robot_id::None)
 	{
 		Int3(); // Got boss actions for a robot who's not a boss?
 		return;
@@ -1197,7 +1206,7 @@ void multi_do_boss_stop_gate(const multiplayer_rspan<multiplayer_command_t::MULT
 	if (!guarded_boss_obj)
 		return;
 	const object_base &boss_obj = *guarded_boss_obj;
-	if (boss_obj.type != OBJ_ROBOT || !Robot_info[get_robot_id(boss_obj)].boss_flag)
+	if (boss_obj.type != OBJ_ROBOT || Robot_info[get_robot_id(boss_obj)].boss_flag == boss_robot_id::None)
 	{
 		Int3(); // Got boss actions for a robot who's not a boss?
 		return;
@@ -1216,7 +1225,7 @@ void multi_do_boss_create_robot(const playernum_t pnum, const multiplayer_rspan<
 	if (!guarded_boss_obj)
 		return;
 	const object_base &boss_obj = *guarded_boss_obj;
-	if (boss_obj.type != OBJ_ROBOT || !Robot_info[get_robot_id(boss_obj)].boss_flag)
+	if (boss_obj.type != OBJ_ROBOT || Robot_info[get_robot_id(boss_obj)].boss_flag == boss_robot_id::None)
 	{
 		Int3(); // Got boss actions for a robot who's not a boss?
 		return;
@@ -1227,9 +1236,10 @@ void multi_do_boss_create_robot(const playernum_t pnum, const multiplayer_rspan<
 		Int3(); // See Rob, bad data in boss gate action message
 		return;
 	}
+	if (const auto trusted_robot_type = LevelSharedRobotInfoState.Robot_info.valid_index(b.robot_type); !trusted_robot_type)
+		return;
 	// Gate one in!
-	const auto &&robot = gate_in_robot(Robot_info, b.robot_type, vmsegptridx(b.where));
-	if (robot != object_none)
+	else if (const auto &&robot = gate_in_robot(Robot_info, *trusted_robot_type, vmsegptridx(b.where)); robot != object_none)
 		map_objnum_local_to_remote(robot, b.objrobot, pnum);
 }
 
@@ -1242,12 +1252,14 @@ void multi_do_create_robot_powerups(const playernum_t pnum, const multiplayer_rs
 	int loc = 1;
 	;					loc += 1;
 	uint8_t contains_count = buf[loc];			loc += 1;
-	uint8_t contains_type = buf[loc];			loc += 1;
+	if (contains_count == 0)
+		return;
+	const uint8_t untrusted_contains_type = buf[loc];			loc += 1;
 	uint8_t contains_id = buf[loc]; 			loc += 1;
 	const auto segnum = segnum_t{GET_INTEL_SHORT(&buf[loc])};	loc += 2;
 	if (!vmsegidx_t::check_nothrow_index(segnum))
 		return;
-	const auto pos = multi_get_vector(&buf[loc]);
+	const auto pos = multi_get_vector(buf.subspan<7, 12>());
 	loc += 12;
 	vms_vector velocity{};
 
@@ -1257,6 +1269,7 @@ void multi_do_create_robot_powerups(const playernum_t pnum, const multiplayer_rs
 	Net_create_loc = 0;
 	d_srand(1245L);
 
+	const auto contains_type = build_contained_object_type_from_untrusted(untrusted_contains_type);
 	if (!object_create_robot_egg(LevelSharedRobotInfoState.Robot_info, contains_type, contains_id, contains_count, velocity, pos, vmsegptridx(segnum)))
 		return; // Object buffer full
 
@@ -1294,9 +1307,9 @@ void multi_drop_robot_powerups(object &del_obj)
 	if (del_obj.contains_count > 0)
 	{
 		//	If dropping a weapon that the player has, drop energy instead, unless it's vulcan, in which case drop vulcan ammo.
-		if (del_obj.contains_type == OBJ_POWERUP) {
+		if (del_obj.contains.type == contained_object_type::powerup) {
 			maybe_replace_powerup_with_energy(del_obj);
-			if (!multi_powerup_is_allowed(del_obj.contains_id, Netgame.AllowedItems))
+			if (multi_powerup_is_allowed(del_obj.contains_id, Netgame.AllowedItems) == netflag_flag::None)
 				del_obj.contains_id = POW_SHIELD_BOOST;
 
 			// No key drops in non-coop games!
@@ -1317,12 +1330,12 @@ void multi_drop_robot_powerups(object &del_obj)
 		d_srand(static_cast<fix>(timer_query()));
 		if (((d_rand() * 16) >> 15) < robptr.contains_prob) {
 			del_obj.contains_count = ((d_rand() * robptr.contains_count) >> 15) + 1;
-			del_obj.contains_type = robptr.contains_type;
+			del_obj.contains = robptr.contains;
 			del_obj.contains_id = robptr.contains_id;
-			if (del_obj.contains_type == OBJ_POWERUP)
+			if (del_obj.contains.type == contained_object_type::powerup)
 			 {
 				maybe_replace_powerup_with_energy(del_obj);
-				if (!multi_powerup_is_allowed(del_obj.contains_id, Netgame.AllowedItems))
+				if (multi_powerup_is_allowed(del_obj.contains_id, Netgame.AllowedItems) == netflag_flag::None)
 					del_obj.contains_id = POW_SHIELD_BOOST;
 			 }
 		

@@ -880,7 +880,7 @@ static window_event_result HandleSystemKey(int key)
 			break;
 		KEY_MAC(case KEY_COMMAND+KEY_ALTED+KEY_4:)
 		case KEY_ALTED + KEY_F4:
-			Show_reticle_name = (Show_reticle_name+1)%2;
+			Show_reticle_name = !Show_reticle_name;
 			break;
 
 		KEY_MAC(case KEY_COMMAND+KEY_7:)
@@ -1022,7 +1022,7 @@ static window_event_result HandleSystemKey(int key)
 		case KEY_ALTED + KEY_SHIFTED + KEY_F9:
 		KEY_MAC(case KEY_COMMAND+KEY_E:)
 #if DXX_USE_SDL_REDBOOK_AUDIO
-			if (GameCfg.MusicType == MUSIC_TYPE_REDBOOK)
+			if (CGameCfg.MusicType == music_type::Redbook)
 			{
 				songs_stop_all();
 				RBAEjectDisk();
@@ -1187,7 +1187,9 @@ static void kill_all_robots(void)
 	{
 		if (objp->type == OBJ_ROBOT)
 		{
-			if (!Robot_info[get_robot_id(objp)].companion && !Robot_info[get_robot_id(objp)].boss_flag) {
+			auto &ri = Robot_info[get_robot_id(objp)];
+			if (!ri.companion && ri.boss_flag == boss_robot_id::None)
+			{
 				dead_count++;
 				objp->flags |= OF_EXPLODING|OF_SHOULD_BE_DEAD;
 			}
@@ -1379,10 +1381,10 @@ static window_event_result HandleTestKey(const d_level_shared_robot_info_state &
 			break;
 		case KEY_DEBUGGED+KEY_M:
 		{
-			static int i = 0;
+			static uint8_t i = 0;
 			const auto &&segp = vmsegptridx(ConsoleObject->segnum);
 			auto &vcvertptr = Vertices.vcptr;
-			const auto &&new_obj = create_morph_robot(LevelSharedRobotInfoState.Robot_info, segp, compute_segment_center(vcvertptr, segp), i);
+			const auto &&new_obj = create_morph_robot(LevelSharedRobotInfoState.Robot_info, segp, compute_segment_center(vcvertptr, segp), robot_id{i});
 			if (new_obj != object_none)
 				morph_start(LevelUniqueMorphObjectState, LevelSharedPolygonModelState, new_obj);
 			i++;
@@ -2148,7 +2150,7 @@ window_event_result ReadControls(const d_level_shared_robot_info_state &LevelSha
 	}
 	if (Player_dead_state != player_dead_state::no &&
 		!((Game_mode & GM_MULTI) &&
-			(multi_sending_message[Player_num] != msgsend_state::none || multi_defining_message)
+			(multi_sending_message[Player_num] != msgsend_state::none || multi_defining_message != multi_macro_message_index::None)
 		)
 	)
 	HandleDeathInput(event, Controls);
@@ -2165,7 +2167,7 @@ window_event_result ReadControls(const d_level_shared_robot_info_state &LevelSha
 			return MarkerInputMessage(key, Controls);
 		}
 #endif
-		if ( (Game_mode & GM_MULTI) && (multi_sending_message[Player_num] != msgsend_state::none || multi_defining_message) )
+		if ( (Game_mode & GM_MULTI) && (multi_sending_message[Player_num] != msgsend_state::none || multi_defining_message != multi_macro_message_index::None) )
 		{
 			return multi_message_input_sub(LevelSharedRobotInfoState.Robot_info, key, Controls);
 		}

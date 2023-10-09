@@ -393,9 +393,9 @@ static void ogl_cache_vclip_textures(const vclip &vc)
 	}
 }
 
-static void ogl_cache_vclipn_textures(const d_vclip_array &Vclip, const unsigned i)
+static void ogl_cache_vclipn_textures(const d_vclip_array &Vclip, const vclip_index i)
 {
-	if (i < Vclip.size())
+	if (Vclip.valid_index(i))
 		ogl_cache_vclip_textures(Vclip[i]);
 }
 
@@ -484,14 +484,14 @@ void ogl_cache_level_textures(void)
 		ogl_cache_weapon_textures(Vclip, Weapon_info, Primary_weapon_to_weapon_info[primary_weapon_index_t::LASER_INDEX]);
 		ogl_cache_weapon_textures(Vclip, Weapon_info, Secondary_weapon_to_weapon_info[CONCUSSION_INDEX]);
 		ogl_cache_weapon_textures(Vclip, Weapon_info, weapon_id_type::FLARE_ID);
-		ogl_cache_vclipn_textures(Vclip, VCLIP_PLAYER_APPEARANCE);
-		ogl_cache_vclipn_textures(Vclip, VCLIP_POWERUP_DISAPPEARANCE);
+		ogl_cache_vclipn_textures(Vclip, vclip_index::player_appearance);
+		ogl_cache_vclipn_textures(Vclip, vclip_index::powerup_disappearance);
 		ogl_cache_polymodel_textures(Player_ship->model_num);
 		ogl_cache_vclipn_textures(Vclip, Player_ship->expl_vclip_num);
 
 		range_for (const auto &&objp, vcobjptridx)
 		{
-			if (objp->type == OBJ_POWERUP && objp->render_type==RT_POWERUP)
+			if (objp->type == OBJ_POWERUP && objp->render_type == render_type::RT_POWERUP)
 			{
 				ogl_cache_vclipn_textures(Vclip, objp->rtype.vclip_info.vclip_num);
 				const auto id = get_powerup_id(objp);
@@ -520,7 +520,7 @@ void ogl_cache_level_textures(void)
 					ogl_cache_weapon_textures(Vclip, Weapon_info, w);
 				}
 			}
-			else if (objp->type != OBJ_NONE && objp->render_type==RT_POLYOBJ)
+			else if (objp->type != OBJ_NONE && objp->render_type == render_type::RT_POLYOBJ)
 			{
 				if (objp->type == OBJ_ROBOT)
 				{

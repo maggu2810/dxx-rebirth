@@ -124,14 +124,18 @@ namespace {
 
 using savegame_pof_names_type = enumerated_array<char[FILENAME_LEN], 167, polygon_model_index>;
 
-static int convert_vclip(const d_vclip_array &Vclip, int vc)
+static vclip_index convert_vclip(const d_vclip_array &Vclip, const int vc)
 {
 	if (vc < 0)
-		return vc;
-	if (vc < Vclip.size() && (Vclip[vc].num_frames != ~0u))
-		return vc;
-	return 0;
+		return vclip_index::None;
+	if (const auto o = Vclip.valid_index(vc))
+	{
+		if (const auto vci{*o}; Vclip[vci].num_frames != ~0u)
+			return vci;
+	}
+	return vclip_index{0};
 }
+
 static int convert_wclip(int wc) {
 	return (wc < Num_wall_anims) ? wc : wc % Num_wall_anims;
 }
@@ -171,11 +175,11 @@ static void verify_object(const d_level_shared_robot_info_state &LevelSharedRobo
 
 		// Make sure valid id...
 		const auto N_robot_types = LevelSharedRobotInfoState.N_robot_types;
-		if (get_robot_id(obj) >= N_robot_types )
-			set_robot_id(obj, get_robot_id(obj) % N_robot_types);
+		if (const auto id = underlying_value(get_robot_id(obj)); id >= N_robot_types)
+			set_robot_id(obj, static_cast<robot_id>(id % N_robot_types));
 
 		// Make sure model number & size are correct...
-		if (obj.render_type == RT_POLYOBJ)
+		if (obj.render_type == render_type::RT_POLYOBJ)
 		{
 			auto &ri = Robot_info[get_robot_id(obj)];
 #if defined(DXX_BUILD_DESCENT_II)
@@ -209,7 +213,7 @@ static void verify_object(const d_level_shared_robot_info_state &LevelSharedRobo
 		}
 
 #if defined(DXX_BUILD_DESCENT_II)
-		if (get_robot_id(obj) == 65)						//special "reactor" robots
+		if (get_robot_id(obj) == robot_id::special_reactor)						//special "reactor" robots
 			obj.movement_source = object::movement_type::None;
 #endif
 
@@ -221,7 +225,7 @@ static void verify_object(const d_level_shared_robot_info_state &LevelSharedRobo
 		}
 	}
 	else {		//Robots taken care of above
-		if (obj.render_type == RT_POLYOBJ)
+		if (obj.render_type == render_type::RT_POLYOBJ)
 		{
 			const auto name = Save_pof_names[obj.rtype.pobj_info.model_num];
 			for (auto &&[i, candidate_name] : enumerate(partial_range(LevelSharedPolygonModelState.Pof_names, LevelSharedPolygonModelState.N_polygon_models)))
@@ -236,7 +240,7 @@ static void verify_object(const d_level_shared_robot_info_state &LevelSharedRobo
 	{
 		if ( get_powerup_id(obj) >= N_powerup_types )	{
 			set_powerup_id(Powerup_info, Vclip, obj, POW_SHIELD_BOOST);
-			Assert( obj.render_type != RT_POLYOBJ );
+			assert(obj.render_type != render_type::RT_POLYOBJ);
 		}
 		obj.control_source = object::control_type::powerup;
 		obj.size = Powerup_info[get_powerup_id(obj)].size;
@@ -247,7 +251,7 @@ static void verify_object(const d_level_shared_robot_info_state &LevelSharedRobo
 	{
 		if ( get_weapon_id(obj) >= N_weapon_types )	{
 			set_weapon_id(obj, weapon_id_type::LASER_ID_L1);
-			Assert( obj.render_type != RT_POLYOBJ );
+			assert(obj.render_type != render_type::RT_POLYOBJ);
 		}
 
 #if defined(DXX_BUILD_DESCENT_II)
@@ -259,7 +263,7 @@ static void verify_object(const d_level_shared_robot_info_state &LevelSharedRobo
 			obj.mtype.phys_info.flags |= PF_FREE_SPINNING;
 
 			// Make sure model number & size are correct...		
-			Assert( obj.render_type == RT_POLYOBJ );
+			assert(obj.render_type == render_type::RT_POLYOBJ);
 
 			obj.rtype.pobj_info.model_num = Weapon_info[weapon_id].model_num;
 			obj.size = Polygon_models[obj.rtype.pobj_info.model_num].rad;
@@ -269,7 +273,7 @@ static void verify_object(const d_level_shared_robot_info_state &LevelSharedRobo
 
 	if (obj.type == OBJ_CNTRLCEN)
 	{
-		obj.render_type = RT_POLYOBJ;
+		obj.render_type = render_type::RT_POLYOBJ;
 		obj.control_source = object::control_type::cntrlcen;
 
 #if defined(DXX_BUILD_DESCENT_I)
@@ -300,7 +304,7 @@ static void verify_object(const d_level_shared_robot_info_state &LevelSharedRobo
 		if (&obj == ConsoleObject)
 			init_player_object(LevelSharedPolygonModelState, obj);
 		else
-			if (obj.render_type == RT_POLYOBJ)	//recover from Matt's pof file matchup bug
+			if (obj.render_type == render_type::RT_POLYOBJ)	//recover from Matt's pof file matchup bug
 				obj.rtype.pobj_info.model_num = Player_ship->model_num;
 
 		//Make sure orient matrix is orthogonal
@@ -311,7 +315,7 @@ static void verify_object(const d_level_shared_robot_info_state &LevelSharedRobo
 
 	if (obj.type == OBJ_HOSTAGE)
 	{
-		obj.render_type = RT_HOSTAGE;
+		obj.render_type = render_type::RT_HOSTAGE;
 		obj.control_source = object::control_type::powerup;
 	}
 }
@@ -333,9 +337,8 @@ static void read_object(const vmobjptr_t obj,PHYSFS_File *f,int version)
 	if (obj->type == OBJ_ROBOT)
 	{
 #if defined(DXX_BUILD_DESCENT_I)
-		const auto id = get_robot_id(obj);
-		if (id > 23)
-			set_robot_id(obj, id % 24);
+		if (const auto id = underlying_value(get_robot_id(obj)); id >= 24)
+			set_robot_id(obj, static_cast<robot_id>(id % 24));
 #endif
 		obj->matcen_creator = 0;
 	}
@@ -378,13 +381,12 @@ static void read_object(const vmobjptr_t obj,PHYSFS_File *f,int version)
 		}
 		obj->movement_source = typename object::movement_type{mtype};
 	}
-	const uint8_t render_type = PHYSFSX_readByte(f);
-	if (valid_render_type(render_type))
-		obj->render_type = render_type_t{render_type};
+	if (const uint8_t rtype = PHYSFSX_readByte(f); valid_render_type(rtype))
+		obj->render_type = render_type{rtype};
 	else
 	{
-		LevelError("Level contains bogus render type %#x for object %p; using none instead", render_type, &*obj);
-		obj->render_type = RT_NONE;
+		LevelError("Level contains bogus render type %#x for object %p; using none instead", rtype, &*obj);
+		obj->render_type = render_type::RT_NONE;
 	}
 	obj->flags          = PHYSFSX_readByte(f);
 
@@ -405,7 +407,8 @@ static void read_object(const vmobjptr_t obj,PHYSFS_File *f,int version)
 		PHYSFSX_readVector(f, last_pos);
 	}
 
-	obj->contains_type  = PHYSFSX_readByte(f);
+	const uint8_t contains_type = PHYSFSX_readByte(f);
+	obj->contains.type  = build_contained_object_type_from_untrusted(contains_type);
 	obj->contains_id    = PHYSFSX_readByte(f);
 	obj->contains_count = PHYSFSX_readByte(f);
 
@@ -561,11 +564,11 @@ static void read_object(const vmobjptr_t obj,PHYSFS_File *f,int version)
 
 	switch (obj->render_type) {
 
-		case RT_NONE:
+		case render_type::RT_NONE:
 			break;
 
-		case RT_MORPH:
-		case RT_POLYOBJ: {
+		case render_type::RT_MORPH:
+		case render_type::RT_POLYOBJ: {
 			int tmo;
 
 			obj->rtype.pobj_info.model_num = build_polygon_model_index_from_untrusted(
@@ -607,22 +610,22 @@ static void read_object(const vmobjptr_t obj,PHYSFS_File *f,int version)
 			break;
 		}
 
-		case RT_WEAPON_VCLIP:
-		case RT_HOSTAGE:
-		case RT_POWERUP:
-		case RT_FIREBALL:
+		case render_type::RT_WEAPON_VCLIP:
+		case render_type::RT_HOSTAGE:
+		case render_type::RT_POWERUP:
+		case render_type::RT_FIREBALL:
 
 #if defined(DXX_BUILD_DESCENT_I)
 			obj->rtype.vclip_info.vclip_num	= convert_vclip(Vclip, PHYSFSX_readInt(f));
 #elif defined(DXX_BUILD_DESCENT_II)
-			obj->rtype.vclip_info.vclip_num	= PHYSFSX_readInt(f);
+			obj->rtype.vclip_info.vclip_num	= build_vclip_index_from_untrusted(PHYSFSX_readInt(f));
 #endif
 			obj->rtype.vclip_info.frametime	= PHYSFSX_readFix(f);
 			obj->rtype.vclip_info.framenum	= PHYSFSX_readByte(f);
 
 			break;
 
-		case RT_LASER:
+		case render_type::RT_LASER:
 			break;
 
 		default:
@@ -666,9 +669,9 @@ static void write_object(const object &obj, short version, PHYSFS_File *f)
 	PHYSFSX_writeU8(f, obj.type);
 	PHYSFSX_writeU8(f, obj.id);
 
-	PHYSFSX_writeU8(f, static_cast<uint8_t>(obj.control_source));
-	PHYSFSX_writeU8(f, static_cast<uint8_t>(obj.movement_source));
-	PHYSFSX_writeU8(f, obj.render_type);
+	PHYSFSX_writeU8(f, underlying_value(obj.control_source));
+	PHYSFSX_writeU8(f, underlying_value(obj.movement_source));
+	PHYSFSX_writeU8(f, underlying_value(obj.render_type));
 	PHYSFSX_writeU8(f, obj.flags);
 
 	PHYSFS_writeSLE16(f, obj.segnum);
@@ -681,7 +684,7 @@ static void write_object(const object &obj, short version, PHYSFS_File *f)
 
 	PHYSFSX_writeVector(f, obj.pos);
 
-	PHYSFSX_writeU8(f, obj.contains_type);
+	PHYSFSX_writeU8(f, underlying_value(obj.contains.type));
 	PHYSFSX_writeU8(f, obj.contains_id);
 	PHYSFSX_writeU8(f, obj.contains_count);
 
@@ -810,11 +813,11 @@ static void write_object(const object &obj, short version, PHYSFS_File *f)
 
 	switch (obj.render_type) {
 
-		case RT_NONE:
+		case render_type::RT_NONE:
 			break;
 
-		case RT_MORPH:
-		case RT_POLYOBJ: {
+		case render_type::RT_MORPH:
+		case render_type::RT_POLYOBJ: {
 			PHYSFS_writeSLE32(f, obj.rtype.pobj_info.model_num == polygon_model_index::None ? -1 : underlying_value(obj.rtype.pobj_info.model_num));
 
 			range_for (auto &i, obj.rtype.pobj_info.anim_angles)
@@ -827,18 +830,18 @@ static void write_object(const object &obj, short version, PHYSFS_File *f)
 			break;
 		}
 
-		case RT_WEAPON_VCLIP:
-		case RT_HOSTAGE:
-		case RT_POWERUP:
-		case RT_FIREBALL:
+		case render_type::RT_WEAPON_VCLIP:
+		case render_type::RT_HOSTAGE:
+		case render_type::RT_POWERUP:
+		case render_type::RT_FIREBALL:
 
-			PHYSFS_writeSLE32(f, obj.rtype.vclip_info.vclip_num);
+			PHYSFS_writeSLE32(f, underlying_value(obj.rtype.vclip_info.vclip_num));
 			PHYSFSX_writeFix(f, obj.rtype.vclip_info.frametime);
 			PHYSFSX_writeU8(f, obj.rtype.vclip_info.framenum);
 
 			break;
 
-		case RT_LASER:
+		case render_type::RT_LASER:
 			break;
 
 		default:
@@ -1506,7 +1509,7 @@ int load_level(
 	if (EditorWindow && (Gamesave_current_version <= 3) && !d1_pig_present)
 	{
 		if (!no_old_level_file_error)
-			Warning("A Descent 1 level was loaded,\n"
+			Warning_puts("A Descent 1 level was loaded,\n"
 					"and there is no Descent 1 texture\n"
 					"set available. Saving it will\n"
 					"convert it to a Descent 2 level.");

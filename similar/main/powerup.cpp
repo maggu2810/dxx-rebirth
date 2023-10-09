@@ -111,10 +111,10 @@ void do_powerup_frame(const d_vclip_array &Vclip, const vmobjptridx_t obj)
 	}
 
 	if (obj->lifeleft <= 0) {
-		object_create_explosion_without_damage(Vclip, vmsegptridx(obj->segnum), obj->pos, F1_0 * 7 / 2, VCLIP_POWERUP_DISAPPEARANCE);
+		object_create_explosion_without_damage(Vclip, vmsegptridx(obj->segnum), obj->pos, F1_0 * 7 / 2, vclip_index::powerup_disappearance);
 
-		if ( Vclip[VCLIP_POWERUP_DISAPPEARANCE].sound_num > -1 )
-			digi_link_sound_to_object(Vclip[VCLIP_POWERUP_DISAPPEARANCE].sound_num, obj, 0, F1_0, sound_stack::allow_stacking);
+		if (const auto sound_num = Vclip[vclip_index::powerup_disappearance].sound_num; sound_num > -1)
+			digi_link_sound_to_object(sound_num, obj, 0, F1_0, sound_stack::allow_stacking);
 	}
 }
 
@@ -322,7 +322,7 @@ struct player_hit_headlight_powerup
 	}
 };
 
-template <unsigned TEAM>
+template <team_number TEAM>
 static int player_hit_flag_powerup(player_info &player_info, const std::span<const char> desc)
 {
 	if (!game_mode_capture_flag())
@@ -673,7 +673,7 @@ int do_powerup(const vmobjptridx_t obj)
 			break;
 
 		case POW_FLAG_BLUE:
-			used = player_hit_flag_powerup<TEAM_RED>(player_info, "BLUE FLAG!");
+			used = player_hit_flag_powerup<team_number::red>(player_info, "BLUE FLAG!");
 		   break;
 
 		case POW_HOARD_ORB:
@@ -692,7 +692,7 @@ int do_powerup(const vmobjptridx_t obj)
 		  break;	
 
 		case POW_FLAG_RED:
-			used = player_hit_flag_powerup<TEAM_BLUE>(player_info, "RED FLAG!");
+			used = player_hit_flag_powerup<team_number::blue>(player_info, "RED FLAG!");
 		   break;
 
 //		case POW_HOARD_ORB:
@@ -718,7 +718,7 @@ int do_powerup(const vmobjptridx_t obj)
 }
 }
 
-DEFINE_SERIAL_UDT_TO_MESSAGE(powerup_type_info, pti, (pti.vclip_num, pti.hit_sound, pti.size, pti.light));
+DEFINE_SERIAL_UDT_TO_MESSAGE(powerup_type_info, pti, (pti.vclip_num, serial::pad<3>(), pti.hit_sound, pti.size, pti.light));
 ASSERT_SERIAL_UDT_MESSAGE_SIZE(powerup_type_info, 16);
 
 namespace dcx {

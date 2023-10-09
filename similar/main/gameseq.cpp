@@ -678,7 +678,7 @@ void init_player_stats_new_ship(const playernum_t pnum)
 	player_info.secondary_ammo = {{
 		static_cast<uint8_t>(get_starting_concussion_missile_count())
 	}};
-	const auto GrantedItems = (Game_mode & GM_MULTI) ? Netgame.SpawnGrantedItems : 0;
+	const auto GrantedItems = (Game_mode & GM_MULTI) ? Netgame.SpawnGrantedItems : packed_spawn_granted_items{};
 	player_info.vulcan_ammo = map_granted_flags_to_vulcan_ammo(GrantedItems);
 	const auto granted_laser_level = map_granted_flags_to_laser_level(GrantedItems);
 	player_info.laser_level = granted_laser_level;
@@ -892,12 +892,12 @@ void create_player_appearance_effect(const d_vclip_array &Vclip, const object_ba
 		: player_obj.pos;
 
 	const auto &&seg = vmsegptridx(player_obj.segnum);
-	const auto &&effect_obj = object_create_explosion_without_damage(Vclip, seg, pos, player_obj.size, VCLIP_PLAYER_APPEARANCE);
+	const auto &&effect_obj = object_create_explosion_without_damage(Vclip, seg, pos, player_obj.size, vclip_index::player_appearance);
 
 	if (effect_obj) {
 		effect_obj->orient = player_obj.orient;
 
-		const auto sound_num = Vclip[VCLIP_PLAYER_APPEARANCE].sound_num;
+		const auto sound_num = Vclip[vclip_index::player_appearance].sound_num;
 		if (sound_num > -1)
 			digi_link_sound_to_pos(sound_num, seg, sidenum_t::WLEFT, effect_obj->pos, 0, F0_5);
 	}
@@ -1406,7 +1406,9 @@ static void do_screen_message(const char *msg)
 namespace dsx {
 #if defined(DXX_BUILD_DESCENT_II)
 namespace {
-static void do_screen_message_fmt(const char *fmt, ...) __attribute_format_printf(1, 2);
+void do_screen_message_fmt(const char *) = delete;
+
+__attribute_format_printf(1, 2)
 static void do_screen_message_fmt(const char *fmt, ...)
 {
 	va_list arglist;
@@ -1416,7 +1418,6 @@ static void do_screen_message_fmt(const char *fmt, ...)
 	va_end(arglist);
 	do_screen_message(msg);
 }
-#define do_screen_message(F,...)	dxx_call_printf_checked(do_screen_message_fmt,do_screen_message,(),F,##__VA_ARGS__)
 
 //	-----------------------------------------------------------------------------------------------------
 // called when the player is starting a new level for normal game mode and restore state
@@ -1448,7 +1449,7 @@ static void StartNewLevelSecret(int level_num, int page_in_textures)
 			{
 				do_screen_message(TXT_SECRET_EXIT);
 			} else {
-				do_screen_message("Secret level already destroyed.\nAdvancing to level %i.", Current_level_num+1);
+				do_screen_message_fmt("Secret level already destroyed.\nAdvancing to level %i.", Current_level_num+1);
 			}
 		}
 	}
@@ -1493,7 +1494,7 @@ static void StartNewLevelSecret(int level_num, int page_in_textures)
 			StartSecretLevel();
 			// -- No: This is only for returning to base level: set_pos_from_return_segment();
 		} else {
-			do_screen_message("Secret level already destroyed.\nAdvancing to level %i.", Current_level_num+1);
+			do_screen_message_fmt("Secret level already destroyed.\nAdvancing to level %i.", Current_level_num+1);
 			return;
 		}
 	}
@@ -1551,7 +1552,7 @@ window_event_result ExitSecretLevel()
 
 	if (PHYSFSX_exists(SECRETB_FILENAME,0))
 	{
-		do_screen_message(TXT_SECRET_RETURN);
+		do_screen_message_fmt(TXT_SECRET_RETURN);
 		auto &player_info = get_local_plrobj().ctype.player_info;
 		const auto pw_save = player_info.Primary_weapon;
 		const auto sw_save = player_info.Secondary_weapon;
@@ -1566,7 +1567,7 @@ window_event_result ExitSecretLevel()
 			result = window_event_result::close;
 		}
 		else {
-			do_screen_message(TXT_SECRET_ADVANCE);
+			do_screen_message_fmt(TXT_SECRET_ADVANCE);
 			StartNewLevel(Entered_from_level+1);
 		}
 	}
@@ -1900,7 +1901,7 @@ window_event_result DoPlayerDead()
 		if (Current_level_num < 0) {
 			if (PHYSFSX_exists(SECRETB_FILENAME,0))
 			{
-				do_screen_message(TXT_SECRET_RETURN);
+				do_screen_message_fmt(TXT_SECRET_RETURN);
 				state_restore_all(1, secret_restore::died, SECRETB_FILENAME, blind_save::no);			//	2 means you died
 				set_pos_from_return_segment();
 				plr.lives--;						//	re-lose the life, get_local_player().lives got written over in restore.
@@ -1911,7 +1912,7 @@ window_event_result DoPlayerDead()
 					result = window_event_result::close;
 				}
 				else {
-					do_screen_message(TXT_SECRET_ADVANCE);
+					do_screen_message_fmt(TXT_SECRET_ADVANCE);
 					StartNewLevel(Entered_from_level+1);
 					init_player_stats_new_ship(Player_num);	//	New, MK, 05/29/96!, fix bug with dying in secret level, advance to next level, keep powerups!
 				}
@@ -1934,7 +1935,7 @@ window_event_result DoPlayerDead()
 	} else if (Current_level_num < 0) {
 		if (PHYSFSX_exists(SECRETB_FILENAME,0))
 		{
-			do_screen_message(TXT_SECRET_RETURN);
+			do_screen_message_fmt(TXT_SECRET_RETURN);
 			if (!LevelUniqueControlCenterState.Control_center_destroyed)
 				state_save_all(secret_save::c, blind_save::no);
 			state_restore_all(1, secret_restore::died, SECRETB_FILENAME, blind_save::no);
@@ -1948,7 +1949,7 @@ window_event_result DoPlayerDead()
 				result = window_event_result::close;
 			}
 			else {
-				do_screen_message(TXT_SECRET_ADVANCE);
+				do_screen_message_fmt(TXT_SECRET_ADVANCE);
 				StartNewLevel(Entered_from_level+1);
 				init_player_stats_new_ship(Player_num);	//	New, MK, 05/29/96!, fix bug with dying in secret level, advance to next level, keep powerups!
 			}
@@ -2328,7 +2329,7 @@ static void InitPlayerPosition(fvmobjptridx &vmobjptridx, fvmsegptridx &vmsegptr
 void copy_defaults_to_robot(const d_robot_info_array &Robot_info, object_base &objp)
 {
 	assert(objp.type == OBJ_ROBOT);
-	const unsigned objid = get_robot_id(objp);
+	const auto objid = get_robot_id(objp);
 
 	auto &robptr = Robot_info[objid];
 
@@ -2355,7 +2356,7 @@ void copy_defaults_to_robot(const d_robot_info_array &Robot_info, object_base &o
 				default:	break;
 			}
 		}
-	} else if (robptr.boss_flag)	//	MK, 01/16/95, make boss shields lower on lower diff levels.
+	} else if (robptr.boss_flag != boss_robot_id::None)	//	MK, 01/16/95, make boss shields lower on lower diff levels.
 	{
 	//	Additional wimpification of bosses at Trainee
 		shields = shields / (NDL + 3) * (Difficulty_level != Difficulty_level_type::_0 ? underlying_value(Difficulty_level) + 4 : 2);

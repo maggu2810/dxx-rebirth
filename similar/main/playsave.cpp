@@ -318,15 +318,15 @@ void new_player_config()
 
 	// Default taunt macros
 #if defined(DXX_BUILD_DESCENT_I)
-	PlayerCfg.NetworkMessageMacro[0].copy_if(TXT_DEF_MACRO_1);
-	PlayerCfg.NetworkMessageMacro[1].copy_if(TXT_DEF_MACRO_2);
-	PlayerCfg.NetworkMessageMacro[2].copy_if(TXT_DEF_MACRO_3);
-	PlayerCfg.NetworkMessageMacro[3].copy_if(TXT_DEF_MACRO_4);
+	PlayerCfg.NetworkMessageMacro[multi_macro_message_index::_0].copy_if(TXT_DEF_MACRO_1);
+	PlayerCfg.NetworkMessageMacro[multi_macro_message_index::_1].copy_if(TXT_DEF_MACRO_2);
+	PlayerCfg.NetworkMessageMacro[multi_macro_message_index::_2].copy_if(TXT_DEF_MACRO_3);
+	PlayerCfg.NetworkMessageMacro[multi_macro_message_index::_3].copy_if(TXT_DEF_MACRO_4);
 #elif defined(DXX_BUILD_DESCENT_II)
-	PlayerCfg.NetworkMessageMacro[0] = "Why can't we all just get along?";
-	PlayerCfg.NetworkMessageMacro[1] = "Hey, I got a present for ya";
-	PlayerCfg.NetworkMessageMacro[2] = "I got a hankerin' for a spankerin'";
-	PlayerCfg.NetworkMessageMacro[3] = "This one's headed for Uranus";
+	PlayerCfg.NetworkMessageMacro[multi_macro_message_index::_0] = "Why can't we all just get along?";
+	PlayerCfg.NetworkMessageMacro[multi_macro_message_index::_1] = "Hey, I got a present for ya";
+	PlayerCfg.NetworkMessageMacro[multi_macro_message_index::_2] = "I got a hankerin' for a spankerin'";
+	PlayerCfg.NetworkMessageMacro[multi_macro_message_index::_3] = "This one's headed for Uranus";
 #endif
 	PlayerCfg.NetlifeKills=0; PlayerCfg.NetlifeKilled=0;
 }
@@ -1676,9 +1676,15 @@ void read_netgame_profile(netgame_info *ng)
 			}
 		}
 		else if (cmp(lb, eq, AllowedItemsStr))
-			convert_integer(ng->AllowedItems, value);
+		{
+			if (auto r = convert_integer<std::underlying_type<netflag_flag>::type>(value))
+				ng->AllowedItems = netflag_flag{*r};
+		}
 		else if (cmp(lb, eq, SpawnGrantedItemsStr))
-			convert_integer(ng->SpawnGrantedItems.mask, value);
+		{
+			if (auto r = convert_integer<std::underlying_type<netgrant_flag>::type>(value))
+				ng->SpawnGrantedItems.mask = netgrant_flag{*r};
+		}
 		else if (cmp(lb, eq, DuplicatePrimariesStr))
 			convert_duplicate_powerup_integer<packed_netduplicate_items::primary_shift, packed_netduplicate_items::primary_width>(ng->DuplicatePowerups, value);
 		else if (cmp(lb, eq, DuplicateSecondariesStr))
@@ -1756,8 +1762,8 @@ void write_netgame_profile(netgame_info *ng)
 	PHYSFSX_printf(file, RefusePlayersStr "=%i\n", ng->RefusePlayers);
 	PHYSFSX_printf(file, DifficultyStr "=%i\n", underlying_value(ng->difficulty));
 	PHYSFSX_printf(file, GameFlagsStr "=%i\n", pack_game_flags(&ng->game_flag).value);
-	PHYSFSX_printf(file, AllowedItemsStr "=%i\n", ng->AllowedItems);
-	PHYSFSX_printf(file, SpawnGrantedItemsStr "=%i\n", ng->SpawnGrantedItems.mask);
+	PHYSFSX_printf(file, AllowedItemsStr "=%i\n", underlying_value(ng->AllowedItems));
+	PHYSFSX_printf(file, SpawnGrantedItemsStr "=%i\n", underlying_value(ng->SpawnGrantedItems.mask));
 	PHYSFSX_printf(file, DuplicatePrimariesStr "=%" PRIuFAST32 "\n", ng->DuplicatePowerups.get_primary_count());
 	PHYSFSX_printf(file, DuplicateSecondariesStr "=%" PRIuFAST32 "\n", ng->DuplicatePowerups.get_secondary_count());
 #if defined(DXX_BUILD_DESCENT_II)

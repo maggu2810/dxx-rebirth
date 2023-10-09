@@ -179,6 +179,18 @@ icobjidx_t laser_info::get_last_hitobj() const
 	return hitobj_values[hitobj_pos - 1];
 }
 
+contained_object_type build_contained_object_type_from_untrusted(const uint8_t untrusted)
+{
+	switch (untrusted)
+	{
+		case object_type_t::OBJ_POWERUP:
+		case object_type_t::OBJ_ROBOT:
+			return contained_object_type{untrusted};
+		default:
+			return contained_object_type::None;
+	}
+}
+
 }
 
 namespace dsx {
@@ -192,7 +204,7 @@ void draw_object_blob(GameBitmaps_array &GameBitmaps, const object_base &Viewer,
 	const auto osize = obj.size;
 	// draw these with slight offset to viewer preventing too much ugly clipping
 	auto pos = obj.pos;
-	if (obj.type == OBJ_FIREBALL && get_fireball_id(obj) == VCLIP_VOLATILE_WALL_HIT)
+	if (obj.type == OBJ_FIREBALL && get_fireball_id(obj) == vclip_index::volatile_wall_hit)
 	{
 		vms_vector offs_vec;
 		vm_vec_normalized_dir_quick(offs_vec, Viewer.pos, pos);
@@ -456,7 +468,7 @@ static void draw_polygon_object(grs_canvas &canvas, const d_level_unique_light_s
 			cloak_fade = {CLOAK_FADEIN_DURATION_PLAYER, CLOAK_FADEOUT_DURATION_PLAYER};
 		}
 		else if ((obj->type == OBJ_ROBOT) && (obj->ctype.ai_info.CLOAKED)) {
-			if (Robot_info[get_robot_id(obj)].boss_flag)
+			if (Robot_info[get_robot_id(obj)].boss_flag != boss_robot_id::None)
 				cloak_duration = {BossUniqueState.Boss_cloak_start_time, Boss_cloak_duration};
 			else
 				cloak_duration = {GameTime64-F1_0*10, F1_0 * 20};
@@ -668,7 +680,7 @@ void create_small_fireball_on_object(const vmobjptridx_t objp, fix size_scale, i
 
 	const auto &&segnum = find_point_seg(LevelSharedSegmentState, LevelUniqueSegmentState, pos, Segments.vmptridx(objp->segnum));
 	if (segnum != segment_none) {
-		const auto &&expl_obj = object_create_explosion_without_damage(Vclip, segnum, pos, size, VCLIP_SMALL_EXPLOSION);
+		const auto &&expl_obj = object_create_explosion_without_damage(Vclip, segnum, pos, size, vclip_index::small_explosion);
 		if (!expl_obj)
 			return;
 		obj_attach(Objects, objp, expl_obj);
@@ -682,7 +694,7 @@ void create_small_fireball_on_object(const vmobjptridx_t objp, fix size_scale, i
 	}
 }
 
-// -- mk, 02/05/95 -- #define	VCLIP_INVULNERABILITY_EFFECT	VCLIP_SMALL_EXPLOSION
+// -- mk, 02/05/95 -- #define	VCLIP_INVULNERABILITY_EFFECT	vclip_index::small_explosion
 // -- mk, 02/05/95 --
 // -- mk, 02/05/95 -- // -----------------------------------------------------------------------------
 // -- mk, 02/05/95 -- void do_player_invulnerability_effect(object *objp)
@@ -711,10 +723,10 @@ void render_object(grs_canvas &canvas, const d_level_unique_light_state &LevelUn
 	bool alpha = false;
 	switch (obj->render_type)
 	{
-		case RT_NONE:
+		case render_type::RT_NONE:
 			break; //doesn't render, like the player
 
-		case RT_POLYOBJ:
+		case render_type::RT_POLYOBJ:
 #if defined(DXX_BUILD_DESCENT_II)
 			if ( PlayerCfg.AlphaBlendMarkers && obj->type == OBJ_MARKER ) // set nice transparency/blending for certrain objects
 			{
@@ -728,11 +740,11 @@ void render_object(grs_canvas &canvas, const d_level_unique_light_state &LevelUn
 				set_robot_location_info(obj);
 			break;
 
-		case RT_MORPH:
+		case render_type::RT_MORPH:
 			draw_morph_object(canvas, LevelUniqueLightState, obj);
 			break;
 
-		case RT_FIREBALL:
+		case render_type::RT_FIREBALL:
 			if (PlayerCfg.AlphaBlendFireballs) // set nice transparency/blending for certrain objects
 			{
 				alpha = true;
@@ -742,7 +754,7 @@ void render_object(grs_canvas &canvas, const d_level_unique_light_state &LevelUn
 			draw_fireball(Vclip, canvas, obj);
 			break;
 
-		case RT_WEAPON_VCLIP:
+		case render_type::RT_WEAPON_VCLIP:
 			if (PlayerCfg.AlphaBlendWeapons && (!is_proximity_bomb_or_any_smart_mine(get_weapon_id(obj))
                 )) // set nice transparency/blending for certain objects
 			{
@@ -753,11 +765,11 @@ void render_object(grs_canvas &canvas, const d_level_unique_light_state &LevelUn
 			draw_weapon_vclip(Vclip, Weapon_info, canvas, obj);
 			break;
 
-		case RT_HOSTAGE:
+		case render_type::RT_HOSTAGE:
 			draw_hostage(Vclip, canvas, LevelUniqueLightState, obj);
 			break;
 
-		case RT_POWERUP:
+		case render_type::RT_POWERUP:
 			if (PlayerCfg.AlphaBlendPowerups) // set nice transparency/blending for certrain objects
 				switch ( get_powerup_id(obj) )
 				{
@@ -819,7 +831,7 @@ void render_object(grs_canvas &canvas, const d_level_unique_light_state &LevelUn
 			draw_powerup(Vclip, canvas, obj);
 			break;
 
-		case RT_LASER:
+		case render_type::RT_LASER:
 			if (PlayerCfg.AlphaBlendLasers) // set nice transparency/blending for certrain objects
 			{
 				alpha = true;
@@ -830,13 +842,13 @@ void render_object(grs_canvas &canvas, const d_level_unique_light_state &LevelUn
 			break;
 
 		default:
-			Error("Unknown render_type <%d>",obj->render_type);
+			Error("Unknown render_type <%d>", underlying_value(obj->render_type));
 	}
 
 	if (alpha)
 		gr_settransblend(canvas, GR_FADE_OFF, gr_blend::normal); // revert any transparency/blending setting back to normal
 
-	if ( obj->render_type != RT_NONE && Newdemo_state == ND_STATE_RECORDING )
+	if (obj->render_type != render_type::RT_NONE && Newdemo_state == ND_STATE_RECORDING)
 		newdemo_record_render_object(obj);
 #if !DXX_USE_OGL
 	Max_linear_depth = mld_save;
@@ -862,7 +874,7 @@ void reset_player_object(object_base &ConsoleObject)
 
 	//Init render info
 
-	ConsoleObject.render_type = RT_POLYOBJ;
+	ConsoleObject.render_type = render_type::RT_POLYOBJ;
 	ConsoleObject.rtype.pobj_info.model_num = Player_ship->model_num;		//what model is this?
 	ConsoleObject.rtype.pobj_info.subobj_flags = 0;		//zero the flags
 	ConsoleObject.rtype.pobj_info.tmap_override = -1;		//no tmap override!
@@ -1141,7 +1153,7 @@ static void free_object_slots(uint_fast32_t num_used)
 //note that segnum is really just a suggestion, since this routine actually
 //searches for the correct segment
 //returns the object number
-imobjptridx_t obj_create(d_level_unique_object_state &LevelUniqueObjectState, const d_level_shared_segment_state &LevelSharedSegmentState, d_level_unique_segment_state &LevelUniqueSegmentState, const object_type_t type, const unsigned id, vmsegptridx_t segnum, const vms_vector &pos, const vms_matrix *const orient, const fix size, const typename object::control_type ctype, const typename object::movement_type mtype, const render_type_t rtype)
+imobjptridx_t obj_create(d_level_unique_object_state &LevelUniqueObjectState, const d_level_shared_segment_state &LevelSharedSegmentState, d_level_unique_segment_state &LevelUniqueSegmentState, const object_type_t type, const unsigned id, vmsegptridx_t segnum, const vms_vector &pos, const vms_matrix *const orient, const fix size, const typename object::control_type ctype, const typename object::movement_type mtype, const render_type rtype)
 {
 	auto &LevelSharedVertexState = LevelSharedSegmentState.get_vertex_state();
 	auto &Objects = LevelUniqueObjectState.Objects;
@@ -1211,7 +1223,7 @@ imobjptridx_t obj_create(d_level_unique_object_state &LevelUniqueObjectState, co
 		obj->mtype.phys_info = {};
 	}
 
-	if (obj->render_type == RT_POLYOBJ)
+	if (obj->render_type == render_type::RT_POLYOBJ)
         {
                 obj->rtype.pobj_info.subobj_flags = 0;
 		obj->rtype.pobj_info.tmap_override = -1;
@@ -1237,7 +1249,7 @@ imobjptridx_t obj_create(d_level_unique_object_state &LevelUniqueObjectState, co
 	return obj;
 }
 
-imobjptridx_t obj_weapon_create(d_level_unique_object_state &LevelUniqueObjectState, const d_level_shared_segment_state &LevelSharedSegmentState, d_level_unique_segment_state &LevelUniqueSegmentState, const weapon_info_array &Weapon_info, const unsigned id, const vmsegptridx_t segnum, const vms_vector &pos, const fix size, const render_type_t rtype)
+imobjptridx_t obj_weapon_create(d_level_unique_object_state &LevelUniqueObjectState, const d_level_shared_segment_state &LevelSharedSegmentState, d_level_unique_segment_state &LevelUniqueSegmentState, const weapon_info_array &Weapon_info, const unsigned id, const vmsegptridx_t segnum, const vms_vector &pos, const fix size, const render_type rtype)
 {
 	constexpr auto ctype = object::control_type::weapon;
 	constexpr auto mtype = object::movement_type::physics;
@@ -1346,7 +1358,7 @@ namespace {
 static int Player_flags_save;
 static fix Camera_to_player_dist_goal = F1_0*4;
 static typename object::control_type Control_type_save;
-static render_type_t Render_type_save;
+static render_type Render_type_save;
 }
 
 unsigned laser_parent_is_matching_signature(const laser_parent &l, const object_base &o)
@@ -1458,7 +1470,7 @@ window_event_result dead_player_frame(const d_robot_info_array &Robot_info)
 		//	If unable to create camera at time of death, create now.
 		if (Dead_player_camera == Viewer_save) {
 			const auto &player = get_local_plrobj();
-			const auto &&objnum = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_CAMERA, 0, vmsegptridx(player.segnum), player.pos, &player.orient, 0, object::control_type::None, object::movement_type::None, RT_NONE);
+			const auto &&objnum = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_CAMERA, 0, vmsegptridx(player.segnum), player.pos, &player.orient, 0, object::control_type::None, object::movement_type::None, render_type::RT_NONE);
 
 			if (objnum != object_none)
 				Viewer = Dead_player_camera = objnum;
@@ -1523,7 +1535,7 @@ window_event_result dead_player_frame(const d_robot_info_array &Robot_info)
 				//is this next line needed, given the badass call above?
 				explode_object(LevelUniqueObjectState, Robot_info, LevelSharedSegmentState, LevelUniqueSegmentState, cobjp, 0);
 				ConsoleObject->flags &= ~OF_SHOULD_BE_DEAD;		//don't really kill player
-				ConsoleObject->render_type = RT_NONE;				//..just make him disappear
+				ConsoleObject->render_type = render_type::RT_NONE;				//..just make him disappear
 				ConsoleObject->type = OBJ_GHOST;						//..and kill intersections
 #if defined(DXX_BUILD_DESCENT_II)
 				player_info.powerup_flags &= ~PLAYER_FLAGS_HEADLIGHT_ON;
@@ -1625,7 +1637,7 @@ static void start_player_death_sequence(object &player)
 	vm_vec_zero(player.mtype.phys_info.rotthrust);
 	vm_vec_zero(player.mtype.phys_info.thrust);
 
-	const auto &&objnum = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_CAMERA, 0, vmsegptridx(player.segnum), player.pos, &player.orient, 0, object::control_type::None, object::movement_type::None, RT_NONE);
+	const auto &&objnum = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_CAMERA, 0, vmsegptridx(player.segnum), player.pos, &player.orient, 0, object::control_type::None, object::movement_type::None, render_type::RT_NONE);
 	Viewer_save = Viewer;
 	if (objnum != object_none)
 		Viewer = Dead_player_camera = objnum;
@@ -2502,7 +2514,7 @@ imobjptridx_t drop_marker_object(const vms_vector &pos, const vmsegptridx_t segn
 		((Game_mode & GM_MULTI) && !(Game_mode & GM_MULTI_COOP) && Netgame.Allow_marker_view)
 		? object::movement_type::None
 		: object::movement_type::spinning;
-	const auto &&obj = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_MARKER, underlying_value(marker_num), segnum, pos, &orient, Polygon_models[Marker_model_num].rad, object::control_type::None, movement_type, RT_POLYOBJ);
+	const auto &&obj = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_MARKER, underlying_value(marker_num), segnum, pos, &orient, Polygon_models[Marker_model_num].rad, object::control_type::None, movement_type, render_type::RT_POLYOBJ);
 	if (obj != object_none) {
 		auto &o = *obj;
 		o.rtype.pobj_info.model_num = Marker_model_num;
@@ -2677,14 +2689,15 @@ void object_rw_swap(object_rw *obj, int swap)
 			break;
 	}
 	
-	switch (obj->render_type)
+	switch (render_type{obj->render_type})
 	{
-		case RT_MORPH:
-		case RT_POLYOBJ:
-		case RT_NONE: // HACK below
-		{
-			if (obj->render_type == RT_NONE && obj->type != OBJ_GHOST) // HACK: when a player is dead or not connected yet, clients still expect to get polyobj data - even if render_type == RT_NONE at this time.
+		case render_type::RT_NONE:
+			if (obj->type != OBJ_GHOST) // HACK: when a player is dead or not connected yet, clients still expect to get polyobj data - even if render_type == RT_NONE at this time.
 				break;
+			[[fallthrough]];
+		case render_type::RT_MORPH:
+		case render_type::RT_POLYOBJ:
+		{
 			obj->rtype.pobj_info.model_num                = SWAPINT(obj->rtype.pobj_info.model_num);
 			for (uint_fast32_t i=0;i<MAX_SUBMODELS;i++)
 			{
@@ -2698,15 +2711,15 @@ void object_rw_swap(object_rw *obj, int swap)
 			break;
 		}
 			
-		case RT_WEAPON_VCLIP:
-		case RT_HOSTAGE:
-		case RT_POWERUP:
-		case RT_FIREBALL:
+		case render_type::RT_WEAPON_VCLIP:
+		case render_type::RT_HOSTAGE:
+		case render_type::RT_POWERUP:
+		case render_type::RT_FIREBALL:
 			obj->rtype.vclip_info.vclip_num = SWAPINT(obj->rtype.vclip_info.vclip_num);
 			obj->rtype.vclip_info.frametime = SWAPINT(obj->rtype.vclip_info.frametime);
 			break;
 			
-		case RT_LASER:
+		case render_type::RT_LASER:
 			break;
 			
 	}

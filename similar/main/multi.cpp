@@ -104,6 +104,27 @@ static void multi_add_lifetime_killed();
 #if !(!defined(RELEASE) && defined(DXX_BUILD_DESCENT_II))
 static void multi_add_lifetime_kills(int count);
 #endif
+
+static constexpr netflag_flag operator~(const netflag_flag a)
+{
+	return static_cast<netflag_flag>(~static_cast<uint32_t>(a));
+}
+
+static constexpr netflag_flag operator|(const netflag_flag a, const netflag_flag b)
+{
+	return static_cast<netflag_flag>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+
+static constexpr netflag_flag operator&(const netflag_flag a, const netflag_flag b)
+{
+	return static_cast<netflag_flag>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+}
+
+static constexpr netgrant_flag operator|(const netgrant_flag a, const netgrant_flag b)
+{
+	return static_cast<netgrant_flag>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+
 }
 }
 namespace {
@@ -173,6 +194,10 @@ constexpr vms_matrix build_native_endian_matrix_from_little_endian(const vms_mat
 	};
 }
 
+#define build_little_endian_angvec_from_native_endian build_native_endian_angvec_from_little_endian
+#define build_little_endian_matrix_from_native_endian build_native_endian_matrix_from_little_endian
+#define build_little_endian_vector_from_native_endian build_native_endian_vector_from_little_endian
+
 }
 DEFINE_SERIAL_UDT_TO_MESSAGE(shortpos, s, (s.bytemat, s.xo, s.yo, s.zo, s.segment, s.velx, s.vely, s.velz));
 
@@ -192,7 +217,7 @@ std::optional<network_state> build_network_state_from_untrusted(const uint8_t un
 	}
 }
 
-vms_vector multi_get_vector(const uint8_t *const buf)
+vms_vector multi_get_vector(const std::span<const uint8_t, 12> buf)
 {
 	return vms_vector{
 		static_cast<int32_t>(GET_INTEL_INT(&buf[0])),
@@ -235,7 +260,7 @@ namespace dcx {
 
 //do we draw the kill list on the HUD?
 show_kill_list_mode Show_kill_list = show_kill_list_mode::_1;
-int Show_reticle_name = 1;
+bool Show_reticle_name{true};
 fix Show_kill_list_timer = 0;
 
 }
@@ -253,7 +278,7 @@ playernum_t Bounty_target;
 
 
 per_player_array<msgsend_state> multi_sending_message;
-int multi_defining_message = 0;
+multi_macro_message_index multi_defining_message{multi_macro_message_index::None};
 
 std::array<sbyte, MAX_OBJECTS> object_owner;   // Who created each object in my universe, -1 = loaded at start
 
@@ -315,7 +340,6 @@ int     Network_rejoined = 0;       // Did WE rejoin this game?
 int     Network_sending_extras=0;
 int     VerifyPlayerJoined=-1;      // Player (num) to enter game before any ingame/extra stuff is being sent
 int     Player_joining_extras=-1;  // This is so we know who to send 'latecomer' packets to.
-int     Network_player_added = 0;   // Is this a new player or a returning player?
 
 ushort          my_segments_checksum = 0;
 
@@ -597,12 +621,12 @@ kmatrix_result multi_endlevel_score()
 
 }
 
-int get_team(const playernum_t pnum)
+team_number get_team(const playernum_t pnum)
 {
 	if (Netgame.team_vector & (1 << pnum))
-		return 1;
+		return team_number::red;
 	else
-		return 0;
+		return team_number::blue;
 }
 
 void multi_new_game()
@@ -650,7 +674,7 @@ void multi_make_player_ghost(const playernum_t playernum)
 	}
 	const auto &&obj = vmobjptridx(vcplayerptr(playernum)->objnum);
 	obj->type = OBJ_GHOST;
-	obj->render_type = RT_NONE;
+	obj->render_type = render_type::RT_NONE;
 	obj->movement_source = object::movement_type::None;
 	multi_reset_player_object(obj);
 	multi_strip_robots(playernum);
@@ -897,7 +921,7 @@ static void multi_compute_kill(const d_robot_info_array &Robot_info, const imobj
 		 * recognizing that these are written in a team game and only
 		 * read in a team game.
 		 */
-		unsigned killed_team = 0, killer_team = 0;
+		team_number killed_team{}, killer_team{};
 		DXX_MAKE_VAR_UNDEFINED(killed_team);
 		DXX_MAKE_VAR_UNDEFINED(killer_team);
 		const auto is_team_game = Game_mode & GM_TEAM;
@@ -1156,18 +1180,22 @@ void multi_define_macro(const int key)
 	switch (key & ~KEY_SHIFTED)
 	{
 		case KEY_F9:
-			multi_defining_message = 1; break;
+			multi_defining_message = multi_macro_message_index::_0;
+			break;
 		case KEY_F10:
-			multi_defining_message = 2; break;
+			multi_defining_message = multi_macro_message_index::_1;
+			break;
 		case KEY_F11:
-			multi_defining_message = 3; break;
+			multi_defining_message = multi_macro_message_index::_2;
+			break;
 		case KEY_F12:
-			multi_defining_message = 4; break;
+			multi_defining_message = multi_macro_message_index::_3;
+			break;
 		default:
 			Int3();
+			return;
 	}
-
-	if (multi_defining_message)     {
+	{
 		key_toggle_repeat(1);
 		multi_message_index = 0;
 		Network_message = {};
@@ -1187,9 +1215,9 @@ static void multi_message_feedback(void)
 		std::size_t feedlen = snprintf(feedback_result, sizeof(feedback_result), "%s ", TXT_MESSAGE_SENT_TO);
 		if (Game_mode & GM_TEAM)
 		{
-			if (const auto c = Network_message[0u]; c == '1' || c == '2')
+			if (const auto o = Netgame.team_name.valid_index(Network_message[0u] - '1'))
 			{
-				snprintf(feedback_result + feedlen, sizeof(feedback_result) - feedlen, "%s '%s'", TXT_TEAM, Netgame.team_name[c - '1'].operator const char *());
+				snprintf(feedback_result + feedlen, sizeof(feedback_result) - feedlen, "%s '%s'", TXT_TEAM, Netgame.team_name[*o].operator const char *());
 				found = 1;
 			}
 			range_for (auto &i, Netgame.team_name)
@@ -1236,17 +1264,21 @@ void multi_send_macro(const int fkey)
 	if (! (Game_mode & GM_MULTI) )
 		return;
 
-	unsigned key;
+	multi_macro_message_index key;
 	switch (fkey)
 	{
 		case KEY_F9:
-			key = 0; break;
+			key = multi_macro_message_index::_0;
+			break;
 		case KEY_F10:
-			key = 1; break;
+			key = multi_macro_message_index::_1;
+			break;
 		case KEY_F11:
-			key = 2; break;
+			key = multi_macro_message_index::_2;
+			break;
 		case KEY_F12:
-			key = 3; break;
+			key = multi_macro_message_index::_3;
+			break;
 		default:
 			Int3();
 			return;
@@ -1484,13 +1516,14 @@ static void multi_send_message_end(const d_robot_info_array &Robot_info, fvmobjp
 
 static void multi_define_macro_end(control_info &Controls)
 {
-	Assert( multi_defining_message > 0 );
-
-	PlayerCfg.NetworkMessageMacro[multi_defining_message-1] = Network_message;
+	const auto defining = multi_defining_message;
+	if (!PlayerCfg.NetworkMessageMacro.valid_index(defining))
+		return;
+	multi_defining_message = multi_macro_message_index::None;
+	PlayerCfg.NetworkMessageMacro[defining] = Network_message;
 	write_player_file();
 
 	multi_message_index = 0;
-	multi_defining_message = 0;
 	key_toggle_repeat(0);
 	game_flush_inputs(Controls);
 }
@@ -1507,7 +1540,7 @@ window_event_result multi_message_input_sub(const d_robot_info_array &Robot_info
 		case KEY_ESC:
 			multi_sending_message[Player_num] = msgsend_state::none;
 			multi_send_msgsend_state(msgsend_state::none);
-			multi_defining_message = 0;
+			multi_defining_message = multi_macro_message_index::None;
 			key_toggle_repeat(0);
 			game_flush_inputs(Controls);
 			return window_event_result::handled;
@@ -1521,7 +1554,7 @@ window_event_result multi_message_input_sub(const d_robot_info_array &Robot_info
 		case KEY_ENTER:
 			if (multi_sending_message[Player_num] != msgsend_state::none)
 				multi_send_message_end(Robot_info, vmobjptr, Controls);
-			else if ( multi_defining_message )
+			else if (multi_defining_message != multi_macro_message_index::None)
 				multi_define_macro_end(Controls);
 			game_flush_inputs(Controls);
 			return window_event_result::handled;
@@ -1589,7 +1622,7 @@ static void multi_do_fire(fvmobjptridx &vmobjptridx, const playernum_t pnum, con
 
 	flags = buf[4];
 
-	const auto shot_orientation = multi_get_vector(&buf[5]);
+	const auto shot_orientation = multi_get_vector(buf.subspan<5, 12>());
 
 	Assert (pnum < N_players);
 
@@ -1650,8 +1683,25 @@ static void multi_do_message(const playernum_t pnum, const multiplayer_rspan<mul
 	}
 	else
 	{
+		/* if
+		 * - it is addressed to me by name OR
+		 * - team mode is active AND one of:
+		 *	- it is addressed to the number of my team OR
+		 *	- it is addressed to the name of my team
+		 *
+		 * then show it.  Otherwise, hide it.
+		 */
 		if ( (!d_strnicmp(static_cast<const char *>(get_local_player().callsign), buf+loc, colon-(buf+loc))) ||
-			 ((Game_mode & GM_TEAM) && ( (get_team(Player_num) == atoi(buf+loc)-1) || !d_strnicmp(Netgame.team_name[get_team(Player_num)], buf+loc, colon-(buf+loc)))) )
+			((Game_mode & GM_TEAM) && ({
+				const auto local_player_team = get_team(Player_num);
+				(buf + loc + 1 == colon && ({
+					/* The length is correct, so this might or might not be a team number. */
+					const auto o = Netgame.team_name.valid_index(buf[loc] - '1');
+					o && local_player_team == *o;
+					})
+				) ||
+				!d_strnicmp(Netgame.team_name[local_player_team], buf+loc, colon-(buf+loc));
+			})))
 		{
 			msgstart = colon + 2;
 		}
@@ -1681,7 +1731,7 @@ static void multi_do_position(fvmobjptridx &vmobjptridx, const playernum_t pnum,
 	qpp.orient.x = GET_INTEL_SHORT(&buf[count]);					count += 2;
 	qpp.orient.y = GET_INTEL_SHORT(&buf[count]);					count += 2;
 	qpp.orient.z = GET_INTEL_SHORT(&buf[count]);					count += 2;
-	qpp.pos = multi_get_vector(&buf[count]);
+	qpp.pos = multi_get_vector(buf.subspan<9, 12>());
 	count += 12;
 	if (const auto s = segnum_t{GET_INTEL_SHORT(&buf[count])}; vmsegidx_t::check_nothrow_index(s))
 	{
@@ -1690,9 +1740,9 @@ static void multi_do_position(fvmobjptridx &vmobjptridx, const playernum_t pnum,
 	}
 	else
 		return;
-	qpp.vel = multi_get_vector(&buf[count]);
+	qpp.vel = multi_get_vector(buf.subspan<9 + 12 + 2, 12>());
 	count += 12;
-	qpp.rotvel = multi_get_vector(&buf[count]);
+	qpp.rotvel = multi_get_vector(buf.subspan<9 + 12 + 2 + 12, 12>());
 	count += 12;
 	extract_quaternionpos(obj, qpp);
 
@@ -2151,7 +2201,7 @@ static void multi_do_controlcen_fire(const multiplayer_rspan<multiplayer_command
 	objnum_t objnum;
 	int count = 1;
 
-	const auto to_target = multi_get_vector(&buf[count]);
+	const auto to_target = multi_get_vector(buf.subspan<1, 12>());
 	count += 12;
 	gun_num = buf[count];                       count += 1;
 	objnum = GET_INTEL_SHORT(&buf[count]);      count += 2;
@@ -2184,7 +2234,7 @@ static void multi_do_create_powerup(fvmsegptridx &vmsegptridx, const playernum_t
 	const auto &&segnum = *useg;
 	count += 2;
 	objnum_t objnum = GET_INTEL_SHORT(&buf[count]); count += 2;
-	const auto new_pos = multi_get_vector(&buf[count]);
+	const auto new_pos = multi_get_vector(buf.subspan<1 + 1 + 1 + 2 + 2, 12>());
 	count+=sizeof(vms_vector);
 	const auto &&my_objnum = drop_powerup(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, Vclip, powerup_type, vmd_zero_vector, new_pos, segnum, true);
 	if (my_objnum == object_none)
@@ -2197,7 +2247,7 @@ static void multi_do_create_powerup(fvmsegptridx &vmsegptridx, const playernum_t
 
 	map_objnum_local_to_remote(my_objnum, objnum, pnum);
 
-	object_create_explosion_without_damage(Vclip, segnum, new_pos, i2f(5), VCLIP_POWERUP_DISAPPEARANCE);
+	object_create_explosion_without_damage(Vclip, segnum, new_pos, i2f(5), vclip_index::powerup_disappearance);
 }
 
 static void multi_do_play_sound(object_array &Objects, const playernum_t pnum, const multiplayer_rspan<multiplayer_command_t::MULTI_PLAY_SOUND> buf)
@@ -2278,7 +2328,7 @@ static void multi_do_effect_blowup(const playernum_t pnum, const multiplayer_rsp
 	if (!uside)
 		return;
 	const auto side = *uside;
-	const auto hitpnt = multi_get_vector(&buf[5]);
+	const auto hitpnt = multi_get_vector(buf.subspan<5, 12>());
 
 	//create a dummy object which will be the weapon that hits
 	//the monitor. the blowup code wants to know who the parent of the
@@ -2302,7 +2352,7 @@ static void multi_do_drop_marker(object_array &Objects, fvmsegptridx &vmsegptrid
 	if (mesnum >= MarkerState.get_markers_per_player(game_mode, max_numplayers))
 		return;
 
-	const auto position = multi_get_vector(&buf[3]);
+	const auto position = multi_get_vector(buf.subspan<3, 12>());
 
 	const auto gmi = convert_player_marker_index_to_game_marker_index(game_mode, max_numplayers, pnum, player_marker_index{mesnum});
 	auto &marker_message = MarkerState.message[gmi];
@@ -2388,7 +2438,7 @@ void multi_reset_player_object(object &objp)
 
 	//Init render info
 
-	objp.render_type = RT_POLYOBJ;
+	objp.render_type = render_type::RT_POLYOBJ;
 	objp.rtype.pobj_info.model_num = Player_ship->model_num;               //what model is this?
 	objp.rtype.pobj_info.subobj_flags = 0;         //zero the flags
 	objp.rtype.pobj_info.anim_angles = {};
@@ -2398,7 +2448,7 @@ void multi_reset_player_object(object &objp)
 	objp.flags = 0;
 
 	if (objp.type == OBJ_GHOST)
-		objp.render_type = RT_NONE;
+		objp.render_type = render_type::RT_NONE;
 	//reset textures for this, if not player 0
 	multi_reset_object_texture (objp);
 }
@@ -2412,7 +2462,7 @@ static void multi_reset_object_texture(object_base &objp)
 
 	const auto player_id = get_player_id(objp);
 	const auto id = (Game_mode & GM_TEAM)
-		? get_team(player_id)
+		? static_cast<unsigned>(get_team(player_id))
 		: player_id;
 
 	auto &pobj_info = objp.rtype.pobj_info;
@@ -2681,7 +2731,7 @@ void multi_send_player_deres(deres_type_t type)
 
 	Net_create_loc = 0;
 
-	if (count > command_length<multiplayer_command_t::MULTI_PLAYER_DERES>::value)
+	if (count > command_length<multiplayer_command_t::MULTI_PLAYER_DERES>)
 	{
 		Int3(); // See Rob
 	}
@@ -3121,9 +3171,12 @@ void multi_consistency_error(int reset)
 namespace {
 
 template <netgrant_bit grant, netflag_bit flag, int s = static_cast<int>(grant) - static_cast<int>(flag)>
-static constexpr unsigned grant_shift_helper(const packed_spawn_granted_items p)
+static constexpr netflag_flag grant_shift_helper(const packed_spawn_granted_items p)
 {
-	return s > 0 ? p.mask >> s : p.mask << -s;
+	if constexpr (s > 0)
+		return static_cast<netflag_flag>(p.mask >> s);
+	else
+		return static_cast<netflag_flag>(p.mask << -s);
 }
 
 }
@@ -3135,12 +3188,12 @@ player_flags map_granted_flags_to_player_flags(const packed_spawn_granted_items 
 	auto &grant = p.mask;
 	const auto None = PLAYER_FLAG::None;
 	return player_flags(
-		((grant & NETGRANT_QUAD) ? PLAYER_FLAGS_QUAD_LASERS : None)
+		((grant & netgrant_flag::NETGRANT_QUAD) != netgrant_flag::None ? PLAYER_FLAGS_QUAD_LASERS : None)
 #if defined(DXX_BUILD_DESCENT_II)
-		| ((grant & NETGRANT_AFTERBURNER) ? PLAYER_FLAGS_AFTERBURNER : None)
-		| ((grant & NETGRANT_AMMORACK) ? PLAYER_FLAGS_AMMO_RACK : None)
-		| ((grant & NETGRANT_CONVERTER) ? PLAYER_FLAGS_CONVERTER : None)
-		| ((grant & NETGRANT_HEADLIGHT) ? PLAYER_FLAGS_HEADLIGHT : None)
+		| ((grant & netgrant_flag::NETGRANT_AFTERBURNER) != netgrant_flag::None ? PLAYER_FLAGS_AFTERBURNER : None)
+		| ((grant & netgrant_flag::NETGRANT_AMMORACK) != netgrant_flag::None ? PLAYER_FLAGS_AMMO_RACK : None)
+		| ((grant & netgrant_flag::NETGRANT_CONVERTER) != netgrant_flag::None ? PLAYER_FLAGS_CONVERTER : None)
+		| ((grant & netgrant_flag::NETGRANT_HEADLIGHT) != netgrant_flag::None ? PLAYER_FLAGS_HEADLIGHT : None)
 #endif
 	);
 }
@@ -3148,15 +3201,15 @@ player_flags map_granted_flags_to_player_flags(const packed_spawn_granted_items 
 uint_fast32_t map_granted_flags_to_primary_weapon_flags(const packed_spawn_granted_items p)
 {
 	auto &grant = p.mask;
-	return ((grant & NETGRANT_VULCAN) ? HAS_VULCAN_FLAG : 0)
-		| ((grant & NETGRANT_SPREAD) ? HAS_SPREADFIRE_FLAG : 0)
-		| ((grant & NETGRANT_PLASMA) ? HAS_PLASMA_FLAG : 0)
-		| ((grant & NETGRANT_FUSION) ? HAS_FUSION_FLAG : 0)
+	return ((grant & netgrant_flag::NETGRANT_VULCAN) != netgrant_flag::None ? HAS_VULCAN_FLAG : 0)
+		| ((grant & netgrant_flag::NETGRANT_SPREAD) != netgrant_flag::None ? HAS_SPREADFIRE_FLAG : 0)
+		| ((grant & netgrant_flag::NETGRANT_PLASMA) != netgrant_flag::None ? HAS_PLASMA_FLAG : 0)
+		| ((grant & netgrant_flag::NETGRANT_FUSION) != netgrant_flag::None ? HAS_FUSION_FLAG : 0)
 #if defined(DXX_BUILD_DESCENT_II)
-		| ((grant & NETGRANT_GAUSS) ? HAS_GAUSS_FLAG : 0)
-		| ((grant & NETGRANT_HELIX) ? HAS_HELIX_FLAG : 0)
-		| ((grant & NETGRANT_PHOENIX) ? HAS_PHOENIX_FLAG : 0)
-		| ((grant & NETGRANT_OMEGA) ? HAS_OMEGA_FLAG : 0)
+		| ((grant & netgrant_flag::NETGRANT_GAUSS) != netgrant_flag::None ? HAS_GAUSS_FLAG : 0)
+		| ((grant & netgrant_flag::NETGRANT_HELIX) != netgrant_flag::None ? HAS_HELIX_FLAG : 0)
+		| ((grant & netgrant_flag::NETGRANT_PHOENIX) != netgrant_flag::None ? HAS_PHOENIX_FLAG : 0)
+		| ((grant & netgrant_flag::NETGRANT_OMEGA) != netgrant_flag::None ? HAS_OMEGA_FLAG : 0)
 #endif
 		;
 }
@@ -3167,34 +3220,39 @@ uint16_t map_granted_flags_to_vulcan_ammo(const packed_spawn_granted_items p)
 	const auto amount = VULCAN_WEAPON_AMMO_AMOUNT;
 	return
 #if defined(DXX_BUILD_DESCENT_II)
-		(grant & NETGRANT_GAUSS ? amount : 0) +
+		((grant & netgrant_flag::NETGRANT_GAUSS) != netgrant_flag::None ? amount : 0) +
 #endif
-		(grant & NETGRANT_VULCAN ? amount : 0);
+		((grant & netgrant_flag::NETGRANT_VULCAN) != netgrant_flag::None ? amount : 0);
 }
 
 namespace {
 
-static constexpr unsigned map_granted_flags_to_netflag(const packed_spawn_granted_items grant)
+static constexpr netflag_flag map_granted_flags_to_netflag(const packed_spawn_granted_items grant)
 {
-	return (grant_shift_helper<BIT_NETGRANT_QUAD, BIT_NETFLAG_DOQUAD>(grant) & (NETFLAG_DOQUAD | NETFLAG_DOVULCAN | NETFLAG_DOSPREAD | NETFLAG_DOPLASMA | NETFLAG_DOFUSION))
+	return (grant_shift_helper<BIT_NETGRANT_QUAD, BIT_NETFLAG_DOQUAD>(grant) & (netflag_flag::NETFLAG_DOQUAD | netflag_flag::NETFLAG_DOVULCAN | netflag_flag::NETFLAG_DOSPREAD | netflag_flag::NETFLAG_DOPLASMA | netflag_flag::NETFLAG_DOFUSION))
 #if defined(DXX_BUILD_DESCENT_II)
-		| (grant_shift_helper<BIT_NETGRANT_GAUSS, BIT_NETFLAG_DOGAUSS>(grant) & (NETFLAG_DOGAUSS | NETFLAG_DOHELIX | NETFLAG_DOPHOENIX | NETFLAG_DOOMEGA))
-		| (grant_shift_helper<BIT_NETGRANT_AFTERBURNER, BIT_NETFLAG_DOAFTERBURNER>(grant) & (NETFLAG_DOAFTERBURNER | NETFLAG_DOAMMORACK | NETFLAG_DOCONVERTER | NETFLAG_DOHEADLIGHT))
+		| (grant_shift_helper<BIT_NETGRANT_GAUSS, BIT_NETFLAG_DOGAUSS>(grant) & (netflag_flag::NETFLAG_DOGAUSS | netflag_flag::NETFLAG_DOHELIX | netflag_flag::NETFLAG_DOPHOENIX | netflag_flag::NETFLAG_DOOMEGA))
+		| (grant_shift_helper<BIT_NETGRANT_AFTERBURNER, BIT_NETFLAG_DOAFTERBURNER>(grant) & (netflag_flag::NETFLAG_DOAFTERBURNER | netflag_flag::NETFLAG_DOAMMORACK | netflag_flag::NETFLAG_DOCONVERTER | netflag_flag::NETFLAG_DOHEADLIGHT))
 #endif
 		;
 }
 
-assert_equal(0, 0, "zero");
-assert_equal(map_granted_flags_to_netflag(NETGRANT_QUAD), NETFLAG_DOQUAD, "QUAD");
-assert_equal(map_granted_flags_to_netflag(NETGRANT_QUAD | NETGRANT_PLASMA), NETFLAG_DOQUAD | NETFLAG_DOPLASMA, "QUAD | PLASMA");
+template <netgrant_flag grant, netflag_flag expected_flag, netflag_flag actual_flag = map_granted_flags_to_netflag(grant)>
+struct assert_netgrant_map_result : std::true_type
+{
+	static_assert(actual_flag == expected_flag);
+};
+
+static_assert(assert_netgrant_map_result<netgrant_flag::NETGRANT_QUAD, netflag_flag::NETFLAG_DOQUAD>::value, "QUAD");
+static_assert(assert_netgrant_map_result<netgrant_flag::NETGRANT_QUAD | netgrant_flag::NETGRANT_PLASMA, netflag_flag::NETFLAG_DOQUAD | netflag_flag::NETFLAG_DOPLASMA>::value, "QUAD | PLASMA");
 #if defined(DXX_BUILD_DESCENT_II)
-assert_equal(map_granted_flags_to_netflag(NETGRANT_GAUSS), NETFLAG_DOGAUSS, "GAUSS");
-assert_equal(map_granted_flags_to_netflag(NETGRANT_GAUSS | NETGRANT_PLASMA), NETFLAG_DOGAUSS | NETFLAG_DOPLASMA, "GAUSS | PLASMA");
-assert_equal(map_granted_flags_to_netflag(NETGRANT_GAUSS | NETGRANT_AFTERBURNER), NETFLAG_DOGAUSS | NETFLAG_DOAFTERBURNER, "GAUSS | AFTERBURNER");
-assert_equal(map_granted_flags_to_netflag(NETGRANT_GAUSS | NETGRANT_PLASMA | NETGRANT_AFTERBURNER), NETFLAG_DOGAUSS | NETFLAG_DOPLASMA | NETFLAG_DOAFTERBURNER, "GAUSS | PLASMA | AFTERBURNER");
-assert_equal(map_granted_flags_to_netflag(NETGRANT_PLASMA | NETGRANT_AFTERBURNER), NETFLAG_DOPLASMA | NETFLAG_DOAFTERBURNER, "PLASMA | AFTERBURNER");
-assert_equal(map_granted_flags_to_netflag(NETGRANT_AFTERBURNER), NETFLAG_DOAFTERBURNER, "AFTERBURNER");
-assert_equal(map_granted_flags_to_netflag(NETGRANT_HEADLIGHT), NETFLAG_DOHEADLIGHT, "HEADLIGHT");
+static_assert(assert_netgrant_map_result<netgrant_flag::NETGRANT_GAUSS, netflag_flag::NETFLAG_DOGAUSS>::value, "GAUSS");
+static_assert(assert_netgrant_map_result<netgrant_flag::NETGRANT_GAUSS | netgrant_flag::NETGRANT_PLASMA, netflag_flag::NETFLAG_DOGAUSS | netflag_flag::NETFLAG_DOPLASMA>::value, "GAUSS | PLASMA");
+static_assert(assert_netgrant_map_result<netgrant_flag::NETGRANT_GAUSS | netgrant_flag::NETGRANT_AFTERBURNER, netflag_flag::NETFLAG_DOGAUSS | netflag_flag::NETFLAG_DOAFTERBURNER>::value, "GAUSS | AFTERBURNER");
+static_assert(assert_netgrant_map_result<netgrant_flag::NETGRANT_GAUSS | netgrant_flag::NETGRANT_PLASMA | netgrant_flag::NETGRANT_AFTERBURNER, netflag_flag::NETFLAG_DOGAUSS | netflag_flag::NETFLAG_DOPLASMA | netflag_flag::NETFLAG_DOAFTERBURNER>::value, "GAUSS | PLASMA | AFTERBURNER");
+static_assert(assert_netgrant_map_result<netgrant_flag::NETGRANT_PLASMA | netgrant_flag::NETGRANT_AFTERBURNER, netflag_flag::NETFLAG_DOPLASMA | netflag_flag::NETFLAG_DOAFTERBURNER>::value, "PLASMA | AFTERBURNER");
+static_assert(assert_netgrant_map_result<netgrant_flag::NETGRANT_AFTERBURNER, netflag_flag::NETFLAG_DOAFTERBURNER>::value, "AFTERBURNER");
+static_assert(assert_netgrant_map_result<netgrant_flag::NETGRANT_HEADLIGHT, netflag_flag::NETFLAG_DOHEADLIGHT>::value, "HEADLIGHT");
 #endif
 
 class update_item_state
@@ -3288,8 +3346,8 @@ void update_item_state::process_powerup(const d_vclip_array &Vclip, fvmsegptridx
 	for (uint_fast32_t i = count++; i; --i)
 	{
 		assert(o.movement_source == object::movement_type::None);
-		assert(o.render_type == RT_POWERUP);
-		const auto &&no = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_POWERUP, id, segp, vm_vec_avg(o.pos, vcvertptr(seg_verts[static_cast<segment_relative_vertnum>(i % seg_verts.size())])), &vmd_identity_matrix, o.size, object::control_type::powerup, object::movement_type::None, RT_POWERUP);
+		assert(o.render_type == render_type::RT_POWERUP);
+		const auto &&no = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_POWERUP, id, segp, vm_vec_avg(o.pos, vcvertptr(seg_verts[static_cast<segment_relative_vertnum>(i % seg_verts.size())])), &vmd_identity_matrix, o.size, object::control_type::powerup, object::movement_type::None, render_type::RT_POWERUP);
 		if (no == object_none)
 			return;
 		m_modified.set(no);
@@ -3348,14 +3406,14 @@ void multi_prep_level_objects(const d_powerup_info_array &Powerup_info, const d_
 	constexpr unsigned MAX_ALLOWED_CLOAK = 3;
 	const auto AllowedItems = Netgame.AllowedItems;
 	const auto SpawnGrantedItems = map_granted_flags_to_netflag(Netgame.SpawnGrantedItems);
-	unsigned inv_remaining = (AllowedItems & NETFLAG_DOINVUL) ? MAX_ALLOWED_INVULNERABILITY : 0;
-	unsigned cloak_remaining = (AllowedItems & NETFLAG_DOCLOAK) ? MAX_ALLOWED_CLOAK : 0;
+	unsigned inv_remaining = (AllowedItems & netflag_flag::NETFLAG_DOINVUL) != netflag_flag::None ? MAX_ALLOWED_INVULNERABILITY : 0;
+	unsigned cloak_remaining = (AllowedItems & netflag_flag::NETFLAG_DOCLOAK) != netflag_flag::None ? MAX_ALLOWED_CLOAK : 0;
 	update_item_state duplicates;
 	range_for (const auto &&o, vmobjptridx)
 	{
 		if ((o->type == OBJ_HOSTAGE) && !(Game_mode & GM_MULTI_COOP))
 		{
-			const auto &&objnum = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_POWERUP, POW_SHIELD_BOOST, vmsegptridx(o->segnum), o->pos, &vmd_identity_matrix, Powerup_info[POW_SHIELD_BOOST].size, object::control_type::powerup, object::movement_type::physics, RT_POWERUP);
+			const auto &&objnum = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_POWERUP, POW_SHIELD_BOOST, vmsegptridx(o->segnum), o->pos, &vmd_identity_matrix, Powerup_info[POW_SHIELD_BOOST].size, object::control_type::powerup, object::movement_type::physics, render_type::RT_POWERUP);
 			obj_delete(LevelUniqueObjectState, Segments, o);
 			if (objnum != object_none)
 			{
@@ -3389,7 +3447,7 @@ void multi_prep_level_objects(const d_powerup_info_array &Powerup_info, const d_
 						set_powerup_id(Powerup_info, Vclip, o, POW_SHIELD_BOOST);
 					continue;
 				default:
-					if (!multi_powerup_is_allowed(id, AllowedItems, SpawnGrantedItems))
+					if (multi_powerup_is_allowed(id, AllowedItems, SpawnGrantedItems) == netflag_flag::None)
 						bash_to_shield(Powerup_info, Vclip, o);
 					else
 						duplicates.process_powerup(Vclip, vmsegptridx, o, id);
@@ -3690,7 +3748,7 @@ void multi_update_objects_for_non_cooperative()
 #if defined(DXX_BUILD_DESCENT_II)
 			// Before deleting object, if it's a robot, drop it's special powerup, if any
 			if (obj_type == OBJ_ROBOT)
-				if (objp->contains_count && (objp->contains_type == OBJ_POWERUP))
+				if (objp->contains_count && objp->contains.type == contained_object_type::powerup)
 					object_create_robot_egg(LevelSharedRobotInfoState.Robot_info, objp);
 #endif
 			obj_delete(LevelUniqueObjectState, Segments, objp);
@@ -4254,9 +4312,9 @@ void multi_do_capture_bonus(const playernum_t pnum)
 
 	digi_play_sample(pnum == Player_num
 		? SOUND_HUD_YOU_GOT_GOAL
-		: (get_team(pnum) == TEAM_RED
-			? SOUND_HUD_RED_GOT_GOAL
-			: SOUND_HUD_BLUE_GOT_GOAL
+		: (get_team(pnum) == team_number::blue
+			? SOUND_HUD_BLUE_GOT_GOAL
+			: SOUND_HUD_RED_GOT_GOAL
 		), F1_0*2);
 
 
@@ -4315,9 +4373,9 @@ void multi_do_orb_bonus(const playernum_t pnum, const multiplayer_rspan<multipla
 		digi_start_sound_queued (SOUND_HUD_YOU_GOT_GOAL,F1_0*2);
 	else
 		digi_play_sample((Game_mode & GM_TEAM)
-			? (get_team(pnum) == TEAM_RED
-				? SOUND_HUD_RED_GOT_GOAL
-				: SOUND_HUD_BLUE_GOT_GOAL
+			? (get_team(pnum) == team_number::blue
+				? SOUND_HUD_BLUE_GOT_GOAL
+				: SOUND_HUD_RED_GOT_GOAL
 			) : SOUND_OPPONENT_HAS_SCORED, F1_0*2);
 
 	if (bonus > hoard_highest_record_stats.points)
@@ -4395,9 +4453,9 @@ static void multi_do_got_flag (const playernum_t pnum)
 	auto &vmobjptr = Objects.vmptr;
 	digi_start_sound_queued(pnum == Player_num
 		? SOUND_HUD_YOU_GOT_FLAG
-		: (get_team(pnum) == TEAM_RED
-			? SOUND_HUD_RED_GOT_FLAG
-			: SOUND_HUD_BLUE_GOT_FLAG
+		: (get_team(pnum) == team_number::blue
+			? SOUND_HUD_BLUE_GOT_FLAG
+			: SOUND_HUD_RED_GOT_FLAG
 		), F1_0*2);
 	vmobjptr(vcplayerptr(pnum)->objnum)->ctype.player_info.powerup_flags |= PLAYER_FLAGS_FLAG;
 	HUD_init_message(HM_MULTI, "%s picked up a flag!",static_cast<const char *>(vcplayerptr(pnum)->callsign));
@@ -4478,7 +4536,7 @@ void DropFlag ()
 		return;
 	}
 	seed = d_rand();
-	const auto &&objnum = spit_powerup(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, Vclip, *ConsoleObject, get_team(Player_num) == TEAM_RED ? POW_FLAG_BLUE : POW_FLAG_RED, seed);
+	const auto &&objnum = spit_powerup(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, Vclip, *ConsoleObject, get_team(Player_num) == team_number::blue ? POW_FLAG_RED : POW_FLAG_BLUE, seed);
 	if (objnum == object_none)
 	{
 		HUD_init_message_literal(HM_MULTI, "Failed to drop flag!");
@@ -4534,12 +4592,12 @@ static void multi_do_drop_flag(const playernum_t pnum, const multiplayer_rspan<m
 }
 #endif
 
-uint_fast32_t multi_powerup_is_allowed(const unsigned id, const unsigned AllowedItems)
+netflag_flag multi_powerup_is_allowed(const unsigned id, const netflag_flag AllowedItems)
 {
 	return multi_powerup_is_allowed(id, AllowedItems, map_granted_flags_to_netflag(Netgame.SpawnGrantedItems));
 }
 
-uint_fast32_t multi_powerup_is_allowed(const unsigned id, const unsigned BaseAllowedItems, const unsigned SpawnGrantedItems)
+netflag_flag multi_powerup_is_allowed(const unsigned id, const netflag_flag BaseAllowedItems, const netflag_flag SpawnGrantedItems)
 {
 	const auto AllowedItems = BaseAllowedItems & ~SpawnGrantedItems;
 	switch (id)
@@ -4547,80 +4605,88 @@ uint_fast32_t multi_powerup_is_allowed(const unsigned id, const unsigned BaseAll
 		case POW_KEY_BLUE:
 		case POW_KEY_GOLD:
 		case POW_KEY_RED:
-			return Game_mode & GM_MULTI_COOP;
+			/* Callers only test whether the result is netflag_flag::None or
+			 * not, and do not expect a specific value. */
+			return static_cast<netflag_flag>(Game_mode & GM_MULTI_COOP);
 		case POW_INVULNERABILITY:
-			return AllowedItems & NETFLAG_DOINVUL;
+			return AllowedItems & netflag_flag::NETFLAG_DOINVUL;
 		case POW_CLOAK:
-			return AllowedItems & NETFLAG_DOCLOAK;
+			return AllowedItems & netflag_flag::NETFLAG_DOCLOAK;
 		case POW_LASER:
 			if (map_granted_flags_to_laser_level(Netgame.SpawnGrantedItems) >= MAX_LASER_LEVEL)
-				return 0;
-			return AllowedItems & NETFLAG_DOLASER;
+				/* If players are granted maximum level lasers, then disallow
+				 * placing laser powerups.
+				 */
+				return netflag_flag::None;
+			return AllowedItems & netflag_flag::NETFLAG_DOLASER;
 		case POW_QUAD_FIRE:
-			return AllowedItems & NETFLAG_DOQUAD;
+			return AllowedItems & netflag_flag::NETFLAG_DOQUAD;
 		case POW_VULCAN_WEAPON:
-			return AllowedItems & NETFLAG_DOVULCAN;
+			return AllowedItems & netflag_flag::NETFLAG_DOVULCAN;
 		case POW_SPREADFIRE_WEAPON:
-			return AllowedItems & NETFLAG_DOSPREAD;
+			return AllowedItems & netflag_flag::NETFLAG_DOSPREAD;
 		case POW_PLASMA_WEAPON:
-			return AllowedItems & NETFLAG_DOPLASMA;
+			return AllowedItems & netflag_flag::NETFLAG_DOPLASMA;
 		case POW_FUSION_WEAPON:
-			return AllowedItems & NETFLAG_DOFUSION;
+			return AllowedItems & netflag_flag::NETFLAG_DOFUSION;
 		case POW_HOMING_AMMO_1:
 		case POW_HOMING_AMMO_4:
-			return AllowedItems & NETFLAG_DOHOMING;
+			return AllowedItems & netflag_flag::NETFLAG_DOHOMING;
 		case POW_PROXIMITY_WEAPON:
-			return AllowedItems & NETFLAG_DOPROXIM;
+			return AllowedItems & netflag_flag::NETFLAG_DOPROXIM;
 		case POW_SMARTBOMB_WEAPON:
-			return AllowedItems & NETFLAG_DOSMART;
+			return AllowedItems & netflag_flag::NETFLAG_DOSMART;
 		case POW_MEGA_WEAPON:
-			return AllowedItems & NETFLAG_DOMEGA;
+			return AllowedItems & netflag_flag::NETFLAG_DOMEGA;
 		case POW_VULCAN_AMMO:
 #if defined(DXX_BUILD_DESCENT_I)
-			return BaseAllowedItems & NETFLAG_DOVULCAN;
+			return BaseAllowedItems & netflag_flag::NETFLAG_DOVULCAN;
 #elif defined(DXX_BUILD_DESCENT_II)
-			return BaseAllowedItems & (NETFLAG_DOVULCAN | NETFLAG_DOGAUSS);
+			return BaseAllowedItems & (netflag_flag::NETFLAG_DOVULCAN | netflag_flag::NETFLAG_DOGAUSS);
 #endif
 #if defined(DXX_BUILD_DESCENT_II)
 		case POW_SUPER_LASER:
 			if (map_granted_flags_to_laser_level(Netgame.SpawnGrantedItems) >= MAX_SUPER_LASER_LEVEL)
-				return 0;
-			return AllowedItems & NETFLAG_DOSUPERLASER;
+				/* If players are granted maximum level super lasers, then
+				 * disallow placing super laser powerups.
+				 */
+				return netflag_flag::None;
+			return AllowedItems & netflag_flag::NETFLAG_DOSUPERLASER;
 		case POW_GAUSS_WEAPON:
-			return AllowedItems & NETFLAG_DOGAUSS;
+			return AllowedItems & netflag_flag::NETFLAG_DOGAUSS;
 		case POW_HELIX_WEAPON:
-			return AllowedItems & NETFLAG_DOHELIX;
+			return AllowedItems & netflag_flag::NETFLAG_DOHELIX;
 		case POW_PHOENIX_WEAPON:
-			return AllowedItems & NETFLAG_DOPHOENIX;
+			return AllowedItems & netflag_flag::NETFLAG_DOPHOENIX;
 		case POW_OMEGA_WEAPON:
-			return AllowedItems & NETFLAG_DOOMEGA;
+			return AllowedItems & netflag_flag::NETFLAG_DOOMEGA;
 		case POW_SMISSILE1_1:
 		case POW_SMISSILE1_4:
-			return AllowedItems & NETFLAG_DOFLASH;
+			return AllowedItems & netflag_flag::NETFLAG_DOFLASH;
 		case POW_GUIDED_MISSILE_1:
 		case POW_GUIDED_MISSILE_4:
-			return AllowedItems & NETFLAG_DOGUIDED;
+			return AllowedItems & netflag_flag::NETFLAG_DOGUIDED;
 		case POW_SMART_MINE:
-			return AllowedItems & NETFLAG_DOSMARTMINE;
+			return AllowedItems & netflag_flag::NETFLAG_DOSMARTMINE;
 		case POW_MERCURY_MISSILE_1:
 		case POW_MERCURY_MISSILE_4:
-			return AllowedItems & NETFLAG_DOMERCURY;
+			return AllowedItems & netflag_flag::NETFLAG_DOMERCURY;
 		case POW_EARTHSHAKER_MISSILE:
-			return AllowedItems & NETFLAG_DOSHAKER;
+			return AllowedItems & netflag_flag::NETFLAG_DOSHAKER;
 		case POW_AFTERBURNER:
-			return AllowedItems & NETFLAG_DOAFTERBURNER;
+			return AllowedItems & netflag_flag::NETFLAG_DOAFTERBURNER;
 		case POW_CONVERTER:
-			return AllowedItems & NETFLAG_DOCONVERTER;
+			return AllowedItems & netflag_flag::NETFLAG_DOCONVERTER;
 		case POW_AMMO_RACK:
-			return AllowedItems & NETFLAG_DOAMMORACK;
+			return AllowedItems & netflag_flag::NETFLAG_DOAMMORACK;
 		case POW_HEADLIGHT:
-			return AllowedItems & NETFLAG_DOHEADLIGHT;
+			return AllowedItems & netflag_flag::NETFLAG_DOHEADLIGHT;
 		case POW_FLAG_BLUE:
 		case POW_FLAG_RED:
-			return game_mode_capture_flag();
+			return netflag_flag{game_mode_capture_flag()};
 #endif
 		default:
-			return 1;
+			return netflag_flag{1};
 	}
 }
 
@@ -5329,7 +5395,7 @@ static void MultiLevelInv_CountPlayerInventory()
 						powerup_flags.process(PLAYER_FLAGS_HEADLIGHT, POW_HEADLIGHT);
                         if ((Game_mode & GM_CAPTURE) && (player_info.powerup_flags & PLAYER_FLAGS_FLAG))
                         {
-				++Current[(get_team(i) == TEAM_RED) ? POW_FLAG_BLUE : POW_FLAG_RED];
+							++Current[(get_team(i) == team_number::blue) ? POW_FLAG_RED : POW_FLAG_BLUE];
                         }
 #endif
 		Current[POW_VULCAN_AMMO] += player_info.vulcan_ammo;
@@ -5489,7 +5555,6 @@ void init_hoard_data(d_vclip_array &Vclip)
 {
 	auto &Effects = LevelUniqueEffectsClipState.Effects;
 	hoard_resources.reset();
-	static int orb_vclip;
 	unsigned n_orb_frames,n_goal_frames;
 	int orb_w,orb_h;
 	palette_array_t palette;
@@ -5515,15 +5580,19 @@ void init_hoard_data(d_vclip_array &Vclip)
 	MALLOC( bitmap_data1, ubyte, n_orb_frames*orb_w*orb_h + n_goal_frames*64*64 );
 
 	//Create orb vclip
-	orb_vclip = Num_vclips++;
-	assert(Num_vclips <= Vclip.size());
-	Vclip[orb_vclip].play_time = F1_0/2;
-	Vclip[orb_vclip].num_frames = n_orb_frames;
-	Vclip[orb_vclip].frame_time = Vclip[orb_vclip].play_time / Vclip[orb_vclip].num_frames;
-	Vclip[orb_vclip].flags = 0;
-	Vclip[orb_vclip].sound_num = -1;
-	Vclip[orb_vclip].light_value = F1_0;
-	range_for (auto &i, partial_range(Vclip[orb_vclip].frames, n_orb_frames))
+	const auto nvc = Vclip.valid_index(Num_vclips);
+	if (!nvc)
+		throw std::runtime_error("too many vclips");
+	++ Num_vclips;
+	const auto orb_vclip{*nvc};
+	auto &vcorb = Vclip[orb_vclip];
+	vcorb.play_time = F1_0/2;
+	vcorb.num_frames = n_orb_frames;
+	vcorb.frame_time = vcorb.play_time / vcorb.num_frames;
+	vcorb.flags = 0;
+	vcorb.sound_num = -1;
+	vcorb.light_value = F1_0;
+	for (auto &i : partial_range(vcorb.frames, n_orb_frames))
 	{
 		const bitmap_index bi{bitmap_num};
 		i = bi;
@@ -5564,7 +5633,7 @@ void init_hoard_data(d_vclip_array &Vclip)
 
 	//Load and remap bitmap data for orb
 	PHYSFS_read(ifile,&palette[0],sizeof(palette[0]),palette.size());
-	range_for (auto &i, partial_const_range(Vclip[orb_vclip].frames, n_orb_frames))
+	range_for (auto &i, partial_const_range(vcorb.frames, n_orb_frames))
 	{
 		grs_bitmap *const bm = &GameBitmaps[i];
 		PHYSFS_read(ifile,bm->get_bitmap_data(),1,orb_w*orb_h);
@@ -5634,48 +5703,54 @@ void init_hoard_data(d_vclip_array &Vclip)
 #if DXX_USE_EDITOR
 void save_hoard_data(void)
 {
-	grs_bitmap icon;
-	unsigned nframes;
-	palette_array_t palette;
-	int iff_error;
-	static const char sounds[][13] = {"selforb.raw","selforb.r22",          //SOUND_YOU_GOT_ORB
+	static constexpr char sounds[][13] = {"selforb.raw","selforb.r22",          //SOUND_YOU_GOT_ORB
 				"teamorb.raw","teamorb.r22",    //SOUND_FRIEND_GOT_ORB
 				"enemyorb.raw","enemyorb.r22",  //SOUND_OPPONENT_GOT_ORB
 				"OPSCORE1.raw","OPSCORE1.r22"}; //SOUND_OPPONENT_HAS_SCORED
-		
 	auto ofile = PHYSFSX_openWriteBuffered("hoard.ham").first;
 	if (!ofile)
 		return;
 
-	std::array<std::unique_ptr<grs_main_bitmap>, MAX_BITMAPS_PER_BRUSH> bm;
-	iff_error = iff_read_animbrush("orb.abm",bm,&nframes,palette);
-	Assert(iff_error == IFF_NO_ERROR);
+	{
+		const auto read_result = iff_read_animbrush("orb.abm");
+		auto &bm = read_result.bm;
+		auto &palette = read_result.palette;
+		const auto nframes = read_result.n_bitmaps;
+		const auto iff_error = read_result.status;
+		assert(iff_error == IFF_NO_ERROR);
 	PHYSFS_writeULE16(ofile, nframes);
 	PHYSFS_writeULE16(ofile, bm[0]->bm_w);
 	PHYSFS_writeULE16(ofile, bm[0]->bm_h);
 	PHYSFS_write(ofile, &palette[0], sizeof(palette[0]), palette.size());
 	range_for (auto &i, partial_const_range(bm, nframes))
 		PHYSFS_write(ofile, i->bm_data, i->bm_w * i->bm_h, 1);
+	}
 
-	iff_error = iff_read_animbrush("orbgoal.abm",bm,&nframes,palette);
-	Assert(iff_error == IFF_NO_ERROR);
+	{
+		const auto read_result = iff_read_animbrush("orbgoal.abm");
+		auto &bm = read_result.bm;
+		auto &palette = read_result.palette;
+		const auto nframes = read_result.n_bitmaps;
+		const auto iff_error = read_result.status;
+		assert(iff_error == IFF_NO_ERROR);
 	Assert(bm[0]->bm_w == 64 && bm[0]->bm_h == 64);
 	PHYSFS_writeULE16(ofile, nframes);
 	PHYSFS_write(ofile, &palette[0], sizeof(palette[0]), palette.size());
 	range_for (auto &i, partial_const_range(bm, nframes))
 		PHYSFS_write(ofile, i->bm_data, i->bm_w * i->bm_h, 1);
+	}
 
 	range_for (const unsigned i, xrange(2u))
 	{
-		iff_error = iff_read_bitmap(i ? "orbb.bbm" : "orb.bbm", icon, &palette);
+		palette_array_t palette;
+		grs_bitmap icon;
+		const auto iff_error = iff_read_bitmap(i ? "orbb.bbm" : "orb.bbm", icon, &palette);
 		Assert(iff_error == IFF_NO_ERROR);
 		PHYSFS_writeULE16(ofile, icon.bm_w);
 		PHYSFS_writeULE16(ofile, icon.bm_h);
 		PHYSFS_write(ofile, &palette[0], sizeof(palette[0]), palette.size());
 		PHYSFS_write(ofile, icon.bm_data, icon.bm_w*icon.bm_h, 1);
 	}
-	(void)iff_error;
-		
 	range_for (auto &i, sounds)
 		if (RAIIPHYSFS_File ifile{PHYSFS_openRead(i)})
 	{
@@ -5918,78 +5993,74 @@ void multi_object_to_object_rw(const object &obj, object_rw *obj_rw)
 	 */
 	*obj_rw = {};
 	DXX_POISON_DEFINED_VAR(*obj_rw, 0xfd);
-	obj_rw->signature     = static_cast<uint16_t>(obj.signature);
+	obj_rw->signature     = INTEL_SHORT(static_cast<uint16_t>(obj.signature));
 	obj_rw->type          = obj.type;
 	obj_rw->id            = obj.id;
-	obj_rw->control_source  = static_cast<uint8_t>(obj.control_source);
-	obj_rw->movement_source = static_cast<uint8_t>(obj.movement_source);
-	obj_rw->render_type   = obj.render_type;
+	/* next, prev not maintained here */
+	obj_rw->control_source = underlying_value(obj.control_source);
+	obj_rw->movement_source = underlying_value(obj.movement_source);
+	const auto rtype = obj.render_type;
+	obj_rw->render_type   = underlying_value(rtype);
 	obj_rw->flags         = obj.flags;
-	obj_rw->segnum        = obj.segnum;
-	obj_rw->pos         = obj.pos;
-	obj_rw->orient = obj.orient;
-	obj_rw->size          = obj.size;
-	obj_rw->shields       = obj.shields;
-	obj_rw->last_pos    = obj.pos;
-	obj_rw->contains_type = obj.contains_type;
+	obj_rw->segnum        = INTEL_SHORT(obj.segnum);
+	/* attached_obj not maintained here */
+	{
+		const auto pos = build_little_endian_vector_from_native_endian(obj.pos);
+		obj_rw->pos = pos;
+		obj_rw->last_pos = pos;
+	}
+	obj_rw->orient = build_little_endian_matrix_from_native_endian(obj.orient);
+	obj_rw->size          = INTEL_INT(obj.size);
+	obj_rw->shields       = INTEL_INT(obj.shields);
+	obj_rw->contains_type = underlying_value(obj.contains.type);
 	obj_rw->contains_id   = obj.contains_id;
 	obj_rw->contains_count= obj.contains_count;
 	obj_rw->matcen_creator= obj.matcen_creator;
-	obj_rw->lifeleft      = obj.lifeleft;
-	
+	obj_rw->lifeleft      = INTEL_INT(obj.lifeleft);
+
 	switch (typename object::movement_type{obj_rw->movement_source})
 	{
 		case object::movement_type::None:
 			obj_rw->mtype = {};
 			break;
 		case object::movement_type::physics:
-			obj_rw->mtype.phys_info.velocity.x  = obj.mtype.phys_info.velocity.x;
-			obj_rw->mtype.phys_info.velocity.y  = obj.mtype.phys_info.velocity.y;
-			obj_rw->mtype.phys_info.velocity.z  = obj.mtype.phys_info.velocity.z;
-			obj_rw->mtype.phys_info.thrust.x    = obj.mtype.phys_info.thrust.x;
-			obj_rw->mtype.phys_info.thrust.y    = obj.mtype.phys_info.thrust.y;
-			obj_rw->mtype.phys_info.thrust.z    = obj.mtype.phys_info.thrust.z;
-			obj_rw->mtype.phys_info.mass        = obj.mtype.phys_info.mass;
-			obj_rw->mtype.phys_info.drag        = obj.mtype.phys_info.drag;
-			obj_rw->mtype.phys_info.rotvel.x    = obj.mtype.phys_info.rotvel.x;
-			obj_rw->mtype.phys_info.rotvel.y    = obj.mtype.phys_info.rotvel.y;
-			obj_rw->mtype.phys_info.rotvel.z    = obj.mtype.phys_info.rotvel.z;
-			obj_rw->mtype.phys_info.rotthrust.x = obj.mtype.phys_info.rotthrust.x;
-			obj_rw->mtype.phys_info.rotthrust.y = obj.mtype.phys_info.rotthrust.y;
-			obj_rw->mtype.phys_info.rotthrust.z = obj.mtype.phys_info.rotthrust.z;
-			obj_rw->mtype.phys_info.turnroll    = obj.mtype.phys_info.turnroll;
-			obj_rw->mtype.phys_info.flags       = obj.mtype.phys_info.flags;
+			obj_rw->mtype.phys_info.velocity  = build_little_endian_vector_from_native_endian(obj.mtype.phys_info.velocity);
+			obj_rw->mtype.phys_info.thrust    = build_little_endian_vector_from_native_endian(obj.mtype.phys_info.thrust);
+			obj_rw->mtype.phys_info.mass        = INTEL_INT(obj.mtype.phys_info.mass);
+			obj_rw->mtype.phys_info.drag        = INTEL_INT(obj.mtype.phys_info.drag);
+			obj_rw->mtype.phys_info.rotvel    = build_little_endian_vector_from_native_endian(obj.mtype.phys_info.rotvel);
+			obj_rw->mtype.phys_info.rotthrust = build_little_endian_vector_from_native_endian(obj.mtype.phys_info.rotthrust);
+			obj_rw->mtype.phys_info.turnroll    = INTEL_INT(obj.mtype.phys_info.turnroll);
+			obj_rw->mtype.phys_info.flags       = INTEL_SHORT(obj.mtype.phys_info.flags);
 			break;
 			
 		case object::movement_type::spinning:
-			obj_rw->mtype.spin_rate.x = obj.mtype.spin_rate.x;
-			obj_rw->mtype.spin_rate.y = obj.mtype.spin_rate.y;
-			obj_rw->mtype.spin_rate.z = obj.mtype.spin_rate.z;
+			obj_rw->mtype.spin_rate = build_little_endian_vector_from_native_endian(obj.mtype.spin_rate);
 			break;
 	}
-	
+
 	switch (typename object::control_type{obj_rw->control_source})
 	{
 		case object::control_type::weapon:
-			obj_rw->ctype.laser_info.parent_type      = obj.ctype.laser_info.parent_type;
-			obj_rw->ctype.laser_info.parent_num       = obj.ctype.laser_info.parent_num;
-			obj_rw->ctype.laser_info.parent_signature = static_cast<uint16_t>(obj.ctype.laser_info.parent_signature);
-			if (obj.ctype.laser_info.creation_time - GameTime64 < F1_0*(-18000))
-				obj_rw->ctype.laser_info.creation_time = F1_0*(-18000);
+			obj_rw->ctype.laser_info.parent_type      = INTEL_SHORT(obj.ctype.laser_info.parent_type);
+			obj_rw->ctype.laser_info.parent_num       = INTEL_SHORT(obj.ctype.laser_info.parent_num);
+			obj_rw->ctype.laser_info.parent_signature = INTEL_INT(static_cast<uint16_t>(obj.ctype.laser_info.parent_signature));
+			if (const auto c = obj.ctype.laser_info.creation_time - GameTime64; c < F1_0*(-18000))
+				obj_rw->ctype.laser_info.creation_time = INTEL_INT(F1_0*(-18000));
 			else
-				obj_rw->ctype.laser_info.creation_time = obj.ctype.laser_info.creation_time - GameTime64;
-			obj_rw->ctype.laser_info.last_hitobj      = obj.ctype.laser_info.get_last_hitobj();
-			obj_rw->ctype.laser_info.track_goal       = obj.ctype.laser_info.track_goal;
-			obj_rw->ctype.laser_info.multiplier       = obj.ctype.laser_info.multiplier;
+				obj_rw->ctype.laser_info.creation_time = INTEL_INT(static_cast<int>(c));
+			obj_rw->ctype.laser_info.last_hitobj      = INTEL_SHORT(obj.ctype.laser_info.get_last_hitobj());
+			obj_rw->ctype.laser_info.track_goal       = INTEL_SHORT(obj.ctype.laser_info.track_goal);
+			obj_rw->ctype.laser_info.multiplier       = INTEL_INT(obj.ctype.laser_info.multiplier);
 			break;
 			
 		case object::control_type::explosion:
-			obj_rw->ctype.expl_info.spawn_time    = obj.ctype.expl_info.spawn_time;
-			obj_rw->ctype.expl_info.delete_time   = obj.ctype.expl_info.delete_time;
-			obj_rw->ctype.expl_info.delete_objnum = obj.ctype.expl_info.delete_objnum;
-			obj_rw->ctype.expl_info.attach_parent = obj.ctype.expl_info.attach_parent;
-			obj_rw->ctype.expl_info.prev_attach   = obj.ctype.expl_info.prev_attach;
-			obj_rw->ctype.expl_info.next_attach   = obj.ctype.expl_info.next_attach;
+			obj_rw->ctype.expl_info.spawn_time    = INTEL_INT(obj.ctype.expl_info.spawn_time);
+			obj_rw->ctype.expl_info.delete_time   = INTEL_INT(obj.ctype.expl_info.delete_time);
+			obj_rw->ctype.expl_info.delete_objnum = INTEL_SHORT(obj.ctype.expl_info.delete_objnum);
+			obj_rw->ctype.expl_info.attach_parent = INTEL_SHORT(obj.ctype.expl_info.attach_parent);
+			obj_rw->ctype.expl_info.prev_attach   = INTEL_SHORT(obj.ctype.expl_info.prev_attach);
+			obj_rw->ctype.expl_info.next_attach   = INTEL_SHORT(obj.ctype.expl_info.next_attach);
 			break;
 			
 		case object::control_type::ai:
@@ -6009,13 +6080,17 @@ void multi_object_to_object_rw(const object &obj, object_rw *obj_rw)
 			obj_rw->ctype.ai_info.flags[7] = obj.ctype.ai_info.SKIP_AI_COUNT;
 			obj_rw->ctype.ai_info.flags[8] = obj.ctype.ai_info.REMOTE_OWNER;
 			obj_rw->ctype.ai_info.flags[9] = obj.ctype.ai_info.REMOTE_SLOT_NUM;
-			obj_rw->ctype.ai_info.hide_segment           = obj.ctype.ai_info.hide_segment;
-			obj_rw->ctype.ai_info.hide_index             = obj.ctype.ai_info.hide_index;
-			obj_rw->ctype.ai_info.path_length            = obj.ctype.ai_info.path_length;
+			obj_rw->ctype.ai_info.hide_segment           = INTEL_SHORT(obj.ctype.ai_info.hide_segment);
+			obj_rw->ctype.ai_info.hide_index             = INTEL_SHORT(obj.ctype.ai_info.hide_index);
+			obj_rw->ctype.ai_info.path_length            = INTEL_SHORT(obj.ctype.ai_info.path_length);
+#if defined(DXX_BUILD_DESCENT_I)
+			obj_rw->ctype.ai_info.cur_path_index         = INTEL_SHORT(obj.ctype.ai_info.cur_path_index);
+#elif defined(DXX_BUILD_DESCENT_II)
 			obj_rw->ctype.ai_info.cur_path_index         = obj.ctype.ai_info.cur_path_index;
-			obj_rw->ctype.ai_info.danger_laser_num       = obj.ctype.ai_info.danger_laser_num;
+#endif
+			obj_rw->ctype.ai_info.danger_laser_num       = INTEL_SHORT(obj.ctype.ai_info.danger_laser_num);
 			if (obj.ctype.ai_info.danger_laser_num != object_none)
-				obj_rw->ctype.ai_info.danger_laser_signature = static_cast<uint16_t>(obj.ctype.ai_info.danger_laser_signature);
+				obj_rw->ctype.ai_info.danger_laser_signature = INTEL_INT(static_cast<uint16_t>(obj.ctype.ai_info.danger_laser_signature));
 			else
 				obj_rw->ctype.ai_info.danger_laser_signature = 0;
 #if defined(DXX_BUILD_DESCENT_I)
@@ -6026,23 +6101,23 @@ void multi_object_to_object_rw(const object &obj, object_rw *obj_rw)
 			if (obj.ctype.ai_info.dying_start_time == 0) // if bot not dead, anything but 0 will kill it
 				obj_rw->ctype.ai_info.dying_start_time = 0;
 			else
-				obj_rw->ctype.ai_info.dying_start_time = obj.ctype.ai_info.dying_start_time - GameTime64;
+				obj_rw->ctype.ai_info.dying_start_time = INTEL_INT(static_cast<int>(obj.ctype.ai_info.dying_start_time - GameTime64));
 #endif
 			break;
 		}
 			
 		case object::control_type::light:
-			obj_rw->ctype.light_info.intensity = obj.ctype.light_info.intensity;
+			obj_rw->ctype.light_info.intensity = INTEL_INT(obj.ctype.light_info.intensity);
 			break;
 			
 		case object::control_type::powerup:
-			obj_rw->ctype.powerup_info.count         = obj.ctype.powerup_info.count;
+			obj_rw->ctype.powerup_info.count         = INTEL_INT(obj.ctype.powerup_info.count);
 #if defined(DXX_BUILD_DESCENT_II)
-			if (obj.ctype.powerup_info.creation_time - GameTime64 < F1_0*(-18000))
-				obj_rw->ctype.powerup_info.creation_time = F1_0*(-18000);
+			if (const auto c = obj.ctype.powerup_info.creation_time - GameTime64; c < F1_0*(-18000))
+				obj_rw->ctype.powerup_info.creation_time = INTEL_INT(F1_0*(-18000));
 			else
-				obj_rw->ctype.powerup_info.creation_time = obj.ctype.powerup_info.creation_time - GameTime64;
-			obj_rw->ctype.powerup_info.flags         = obj.ctype.powerup_info.flags;
+				obj_rw->ctype.powerup_info.creation_time = INTEL_INT(static_cast<int>(c));
+			obj_rw->ctype.powerup_info.flags         = INTEL_INT(obj.ctype.powerup_info.flags);
 #endif
 			break;
 		case object::control_type::None:
@@ -6056,39 +6131,36 @@ void multi_object_to_object_rw(const object &obj, object_rw *obj_rw)
 		default:
 			break;
 	}
-	
-	switch (obj_rw->render_type)
+
+	switch (rtype)
 	{
-		case RT_MORPH:
-		case RT_POLYOBJ:
-		case RT_NONE: // HACK below
+		case render_type::RT_NONE:
+			if (obj.type != OBJ_GHOST) // HACK: when a player is dead or not connected yet, clients still expect to get polyobj data - even if render_type == RT_NONE at this time.
+				break;
+			[[fallthrough]];
+		case render_type::RT_MORPH:
+		case render_type::RT_POLYOBJ:
 		{
 			int i;
-			if (obj.render_type == RT_NONE && obj.type != OBJ_GHOST) // HACK: when a player is dead or not connected yet, clients still expect to get polyobj data - even if render_type == RT_NONE at this time.
-				break;
-			obj_rw->rtype.pobj_info.model_num = underlying_value(obj.rtype.pobj_info.model_num);
+			obj_rw->rtype.pobj_info.model_num = INTEL_INT(underlying_value(obj.rtype.pobj_info.model_num));
 			for (i=0;i<MAX_SUBMODELS;i++)
-			{
-				obj_rw->rtype.pobj_info.anim_angles[i].p = obj.rtype.pobj_info.anim_angles[i].p;
-				obj_rw->rtype.pobj_info.anim_angles[i].b = obj.rtype.pobj_info.anim_angles[i].b;
-				obj_rw->rtype.pobj_info.anim_angles[i].h = obj.rtype.pobj_info.anim_angles[i].h;
-			}
-			obj_rw->rtype.pobj_info.subobj_flags             = obj.rtype.pobj_info.subobj_flags;
-			obj_rw->rtype.pobj_info.tmap_override            = obj.rtype.pobj_info.tmap_override;
-			obj_rw->rtype.pobj_info.alt_textures             = obj.rtype.pobj_info.alt_textures;
+				obj_rw->rtype.pobj_info.anim_angles[i] = build_little_endian_angvec_from_native_endian(obj.rtype.pobj_info.anim_angles[i]);
+			obj_rw->rtype.pobj_info.subobj_flags             = INTEL_INT(obj.rtype.pobj_info.subobj_flags);
+			obj_rw->rtype.pobj_info.tmap_override            = INTEL_INT(obj.rtype.pobj_info.tmap_override);
+			obj_rw->rtype.pobj_info.alt_textures             = INTEL_INT(obj.rtype.pobj_info.alt_textures);
 			break;
 		}
 			
-		case RT_WEAPON_VCLIP:
-		case RT_HOSTAGE:
-		case RT_POWERUP:
-		case RT_FIREBALL:
-			obj_rw->rtype.vclip_info.vclip_num = obj.rtype.vclip_info.vclip_num;
-			obj_rw->rtype.vclip_info.frametime = obj.rtype.vclip_info.frametime;
+		case render_type::RT_WEAPON_VCLIP:
+		case render_type::RT_HOSTAGE:
+		case render_type::RT_POWERUP:
+		case render_type::RT_FIREBALL:
+			obj_rw->rtype.vclip_info.vclip_num = INTEL_INT(underlying_value(obj.rtype.vclip_info.vclip_num));
+			obj_rw->rtype.vclip_info.frametime = INTEL_INT(obj.rtype.vclip_info.frametime);
 			obj_rw->rtype.vclip_info.framenum  = obj.rtype.vclip_info.framenum;
 			break;
 			
-		case RT_LASER:
+		case render_type::RT_LASER:
 			break;
 			
 	}
@@ -6107,13 +6179,12 @@ void multi_object_rw_to_object(const object_rw *const obj_rw, object &obj)
 	/* obj->next,obj->prev handled by caller based on segment */
 	obj.control_source  = typename object::control_type{obj_rw->control_source};
 	obj.movement_source = typename object::movement_type{obj_rw->movement_source};
-	const auto render_type = obj_rw->render_type;
-	if (valid_render_type(render_type))
-		obj.render_type = render_type_t{render_type};
+	if (const auto rtype = obj_rw->render_type; valid_render_type(rtype))
+		obj.render_type = render_type{rtype};
 	else
 	{
-		con_printf(CON_URGENT, "peer sent bogus render type %#x for object %p; using none instead", render_type, &obj);
-		obj.render_type = RT_NONE;
+		con_printf(CON_URGENT, "peer sent bogus render type %#x for object %p; using none instead", rtype, &obj);
+		obj.render_type = render_type::RT_NONE;
 	}
 	obj.flags         = obj_rw->flags;
 	{
@@ -6125,7 +6196,7 @@ void multi_object_rw_to_object(const object_rw *const obj_rw, object &obj)
 	obj.orient = build_native_endian_matrix_from_little_endian(obj_rw->orient);
 	obj.size          = INTEL_INT(obj_rw->size);
 	obj.shields       = INTEL_INT(obj_rw->shields);
-	obj.contains_type = obj_rw->contains_type;
+	obj.contains.type = build_contained_object_type_from_untrusted(obj_rw->contains_type);
 	obj.contains_id   = obj_rw->contains_id;
 	obj.contains_count= obj_rw->contains_count;
 	obj.matcen_creator= obj_rw->matcen_creator;
@@ -6256,13 +6327,14 @@ void multi_object_rw_to_object(const object_rw *const obj_rw, object &obj)
 	
 	switch (obj.render_type)
 	{
-		case RT_MORPH:
-		case RT_POLYOBJ:
-		case RT_NONE: // HACK below
+		case render_type::RT_NONE:
+			if (obj.type != OBJ_GHOST) // HACK: when a player is dead or not connected yet, clients still expect to get polyobj data - even if render_type == RT_NONE at this time.
+				break;
+			[[fallthrough]];
+		case render_type::RT_MORPH:
+		case render_type::RT_POLYOBJ:
 		{
 			int i;
-			if (obj.render_type == RT_NONE && obj.type != OBJ_GHOST) // HACK: when a player is dead or not connected yet, clients still expect to get polyobj data - even if render_type == RT_NONE at this time.
-				break;
 			obj.rtype.pobj_info.model_num                = build_polygon_model_index_from_untrusted(INTEL_INT(obj_rw->rtype.pobj_info.model_num));
 			for (i=0;i<MAX_SUBMODELS;i++)
 			{
@@ -6274,16 +6346,16 @@ void multi_object_rw_to_object(const object_rw *const obj_rw, object &obj)
 			break;
 		}
 			
-		case RT_WEAPON_VCLIP:
-		case RT_HOSTAGE:
-		case RT_POWERUP:
-		case RT_FIREBALL:
-			obj.rtype.vclip_info.vclip_num = INTEL_INT(obj_rw->rtype.vclip_info.vclip_num);
+		case render_type::RT_WEAPON_VCLIP:
+		case render_type::RT_HOSTAGE:
+		case render_type::RT_POWERUP:
+		case render_type::RT_FIREBALL:
+			obj.rtype.vclip_info.vclip_num = build_vclip_index_from_untrusted(INTEL_INT(obj_rw->rtype.vclip_info.vclip_num));
 			obj.rtype.vclip_info.frametime = INTEL_INT(obj_rw->rtype.vclip_info.frametime);
 			obj.rtype.vclip_info.framenum  = obj_rw->rtype.vclip_info.framenum;
 			break;
 			
-		case RT_LASER:
+		case render_type::RT_LASER:
 			break;
 			
 	}
@@ -6431,51 +6503,51 @@ void show_netgame_info(const netgame_info &netgame)
 #endif
 			array_snprintf(lines[spawn_count], "Use * Furthest Spawn Sites\t  %i", netgame.SecludedSpawns+1);
 			array_snprintf(lines[spawn_invulnerable_time], "Invulnerable Time\t  %1.1f sec", static_cast<float>(netgame.InvulAppear) / 2);
-			array_snprintf(lines[allow_laser_upgrade], "Laser Upgrade\t  %s", (netgame.AllowedItems & NETFLAG_DOLASER)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_quad_laser], "Quad Lasers\t  %s", (netgame.AllowedItems & NETFLAG_DOQUAD)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_vulcan_cannon], "Vulcan Cannon\t  %s", (netgame.AllowedItems & NETFLAG_DOVULCAN)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_spreadfire_cannon], "Spreadfire Cannon\t  %s", (netgame.AllowedItems & NETFLAG_DOSPREAD)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_plasma_cannon], "Plasma Cannon\t  %s", (netgame.AllowedItems & NETFLAG_DOPLASMA)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_fusion_cannon], "Fusion Cannon\t  %s", (netgame.AllowedItems & NETFLAG_DOFUSION)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_homing_missiles], "Homing Missiles\t  %s", (netgame.AllowedItems & NETFLAG_DOHOMING)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_proximity_bombs], "Proximity Bombs\t  %s", (netgame.AllowedItems & NETFLAG_DOPROXIM)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_smart_missiles], "Smart Missiles\t  %s", (netgame.AllowedItems & NETFLAG_DOSMART)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_mega_missiles], "Mega Missiles\t  %s", (netgame.AllowedItems & NETFLAG_DOMEGA)?TXT_YES:TXT_NO);
+			array_snprintf(lines[allow_laser_upgrade], "Laser Upgrade\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOLASER) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_quad_laser], "Quad Lasers\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOQUAD) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_vulcan_cannon], "Vulcan Cannon\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOVULCAN) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_spreadfire_cannon], "Spreadfire Cannon\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOSPREAD) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_plasma_cannon], "Plasma Cannon\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOPLASMA) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_fusion_cannon], "Fusion Cannon\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOFUSION) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_homing_missiles], "Homing Missiles\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOHOMING) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_proximity_bombs], "Proximity Bombs\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOPROXIM) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_smart_missiles], "Smart Missiles\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOSMART) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_mega_missiles], "Mega Missiles\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOMEGA) != netflag_flag::None ? TXT_YES : TXT_NO);
 #if defined(DXX_BUILD_DESCENT_II)
-			array_snprintf(lines[allow_super_laser_upgrade], "Super Lasers\t  %s", (netgame.AllowedItems & NETFLAG_DOSUPERLASER)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_gauss_cannon], "Gauss Cannon\t  %s", (netgame.AllowedItems & NETFLAG_DOGAUSS)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_helix_cannon], "Helix Cannon\t  %s", (netgame.AllowedItems & NETFLAG_DOHELIX)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_phoenix_cannon], "Phoenix Cannon\t  %s", (netgame.AllowedItems & NETFLAG_DOPHOENIX)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_omega_cannon], "Omega Cannon\t  %s", (netgame.AllowedItems & NETFLAG_DOOMEGA)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_flash_missiles], "Flash Missiles\t  %s", (netgame.AllowedItems & NETFLAG_DOFLASH)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_guided_missiles], "Guided Missiles\t  %s", (netgame.AllowedItems & NETFLAG_DOGUIDED)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_smart_mines], "Smart Mines\t  %s", (netgame.AllowedItems & NETFLAG_DOSMARTMINE)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_mercury_missiles], "Mercury Missiles\t  %s", (netgame.AllowedItems & NETFLAG_DOMERCURY)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_earthshaker_missiles], "Earthshaker Missiles\t  %s", (netgame.AllowedItems & NETFLAG_DOSHAKER)?TXT_YES:TXT_NO);
+			array_snprintf(lines[allow_super_laser_upgrade], "Super Lasers\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOSUPERLASER) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_gauss_cannon], "Gauss Cannon\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOGAUSS) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_helix_cannon], "Helix Cannon\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOHELIX) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_phoenix_cannon], "Phoenix Cannon\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOPHOENIX) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_omega_cannon], "Omega Cannon\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOOMEGA) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_flash_missiles], "Flash Missiles\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOFLASH) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_guided_missiles], "Guided Missiles\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOGUIDED) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_smart_mines], "Smart Mines\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOSMARTMINE) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_mercury_missiles], "Mercury Missiles\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOMERCURY) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_earthshaker_missiles], "Earthshaker Missiles\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOSHAKER) != netflag_flag::None ? TXT_YES : TXT_NO);
 #endif
-			array_snprintf(lines[allow_cloaking], "Cloaking\t  %s", (netgame.AllowedItems & NETFLAG_DOCLOAK)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_invulnerability], "Invulnerability\t  %s", (netgame.AllowedItems & NETFLAG_DOINVUL)?TXT_YES:TXT_NO);
+			array_snprintf(lines[allow_cloaking], "Cloaking\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOCLOAK) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_invulnerability], "Invulnerability\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOINVUL) != netflag_flag::None ? TXT_YES : TXT_NO);
 #if defined(DXX_BUILD_DESCENT_II)
-			array_snprintf(lines[allow_afterburner], "Afterburners\t  %s", (netgame.AllowedItems & NETFLAG_DOAFTERBURNER)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_ammo_rack], "Ammo Rack\t  %s", (netgame.AllowedItems & NETFLAG_DOAMMORACK)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_energy_converter], "Energy Converter\t  %s", (netgame.AllowedItems & NETFLAG_DOCONVERTER)?TXT_YES:TXT_NO);
-			array_snprintf(lines[allow_headlight], "Headlight\t  %s", (netgame.AllowedItems & NETFLAG_DOHEADLIGHT)?TXT_YES:TXT_NO);
+			array_snprintf(lines[allow_afterburner], "Afterburners\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOAFTERBURNER) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_ammo_rack], "Ammo Rack\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOAMMORACK) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_energy_converter], "Energy Converter\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOCONVERTER) != netflag_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[allow_headlight], "Headlight\t  %s", (netgame.AllowedItems & netflag_flag::NETFLAG_DOHEADLIGHT) != netflag_flag::None ? TXT_YES : TXT_NO);
 #endif
 			array_snprintf(lines[grant_laser_level], "Laser Level\t  %u", static_cast<unsigned>(map_granted_flags_to_laser_level(netgame.SpawnGrantedItems)) + 1);
-			array_snprintf(lines[grant_quad_laser], "Quad Lasers\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_QUAD)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_vulcan_cannon], "Vulcan Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_VULCAN)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_spreadfire_cannon], "Spreadfire Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_SPREAD)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_plasma_cannon], "Plasma Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_PLASMA)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_fusion_cannon], "Fusion Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_FUSION)?TXT_YES:TXT_NO);
+			array_snprintf(lines[grant_quad_laser], "Quad Lasers\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_QUAD) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_vulcan_cannon], "Vulcan Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_VULCAN) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_spreadfire_cannon], "Spreadfire Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_SPREAD) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_plasma_cannon], "Plasma Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_PLASMA) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_fusion_cannon], "Fusion Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_FUSION) != netgrant_flag::None ? TXT_YES : TXT_NO);
 #if defined(DXX_BUILD_DESCENT_II)
-			array_snprintf(lines[grant_gauss_cannon], "Gauss Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_GAUSS)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_helix_cannon], "Helix Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_HELIX)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_phoenix_cannon], "Phoenix Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_PHOENIX)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_omega_cannon], "Omega Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_OMEGA)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_afterburner], "Afterburner\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_AFTERBURNER)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_ammo_rack], "Ammo Rack\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_AMMORACK)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_energy_converter], "Energy Converter\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_CONVERTER)?TXT_YES:TXT_NO);
-			array_snprintf(lines[grant_headlight], "Headlight\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, NETGRANT_HEADLIGHT)?TXT_YES:TXT_NO);
+			array_snprintf(lines[grant_gauss_cannon], "Gauss Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_GAUSS) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_helix_cannon], "Helix Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_HELIX) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_phoenix_cannon], "Phoenix Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_PHOENIX) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_omega_cannon], "Omega Cannon\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_OMEGA) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_afterburner], "Afterburner\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_AFTERBURNER) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_ammo_rack], "Ammo Rack\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_AMMORACK) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_energy_converter], "Energy Converter\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_CONVERTER) != netgrant_flag::None ? TXT_YES : TXT_NO);
+			array_snprintf(lines[grant_headlight], "Headlight\t  %s", menu_bit_wrapper(netgame.SpawnGrantedItems.mask, netgrant_flag::NETGRANT_HEADLIGHT) != netgrant_flag::None ? TXT_YES : TXT_NO);
 #endif
 			array_snprintf(lines[show_all_players_on_automap], "Show All Players On Automap\t  %s", netgame.game_flag.show_on_map?TXT_YES:TXT_NO);
 #if defined(DXX_BUILD_DESCENT_II)

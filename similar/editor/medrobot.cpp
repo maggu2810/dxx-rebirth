@@ -62,6 +62,13 @@ COPYRIGHT 1993-1998 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 static int GoodyNextID();
 static int GoodyPrevID();
 
+namespace {
+
+static contained_object_type Cur_goody_type = contained_object_type::powerup;
+static uint8_t Cur_goody_id;
+
+}
+
 //-------------------------------------------------------------------------
 // Variables for this module...
 //-------------------------------------------------------------------------
@@ -124,7 +131,7 @@ static int RobotNextType()
 			obj->shields = Robot_info[get_robot_id(obj)].strength;
 			call_init_ai_object(Robot_info, obj, ai_behavior::AIB_NORMAL);
 
-			Cur_object_id = get_robot_id(obj);
+			Cur_object_id = underlying_value(get_robot_id(obj));
 		}
 	}
 	Update_flags |= UF_WORLD_CHANGED;
@@ -157,7 +164,7 @@ static int RobotPrevType()
 			obj->shields = Robot_info[get_robot_id(obj)].strength;
 			call_init_ai_object(Robot_info, obj, ai_behavior::AIB_NORMAL);
 
-			Cur_object_id = get_robot_id(obj);
+			Cur_object_id = underlying_value(get_robot_id(obj));
 		}
 	}
 	Update_flags |= UF_WORLD_CHANGED;
@@ -199,8 +206,6 @@ static int med_set_ai_path()
 //#define	GOODY_ID_MAX_POWERUP	9
 #define	GOODY_COUNT_MAX	4
 
-int		Cur_goody_type = OBJ_POWERUP;
-int		Cur_goody_id = 0;
 int		Cur_goody_count = 0;
 
 static void update_goody_info(void)
@@ -211,7 +216,7 @@ static void update_goody_info(void)
 		auto &obj = *vmobjptr(Cur_object_index);
 		if (obj.type == OBJ_ROBOT)
 		{
-			obj.contains_type = Cur_goody_type;
+			obj.contains.type = Cur_goody_type;
 			obj.contains_id = Cur_goody_id;
 			obj.contains_count = Cur_goody_count;
 		}
@@ -231,36 +236,44 @@ static void update_goody_info(void)
 // #define OBJ_FLARE		10		//the control center
 // #define MAX_OBJECT_TYPES	11
 
-
-static int GoodyNextType()
+static void GoodyClampIDLower(const contained_object_type type)
 {
-	Cur_goody_type++;
-	while (!((Cur_goody_type == OBJ_ROBOT) || (Cur_goody_type == OBJ_POWERUP))) {
-		if (Cur_goody_type > GOODY_TYPE_MAX)
-			Cur_goody_type=0;
-		else
-			Cur_goody_type++;
+	switch (type)
+	{
+		case contained_object_type::robot:
+			if (Cur_goody_id >= LevelSharedRobotInfoState.N_robot_types)
+				Cur_goody_id = {};
+			break;
+		case contained_object_type::powerup:
+			if (Cur_goody_id >= N_powerup_types)
+				Cur_goody_id = {};
+			break;
+		default:
+			break;
 	}
-
-	GoodyNextID();
-	GoodyPrevID();
-
-	update_goody_info();
-	return 1;
 }
 
-static int GoodyPrevType()
+static void GoodyClampIDUpper(const contained_object_type type)
 {
-	Cur_goody_type--;
-	while (!((Cur_goody_type == OBJ_ROBOT) || (Cur_goody_type == OBJ_POWERUP))) {
-		if (Cur_goody_type < 0)
-			Cur_goody_type = GOODY_TYPE_MAX;
-		else
-			Cur_goody_type--;
+	switch (type)
+	{
+		case contained_object_type::robot:
+			if (const auto n = LevelSharedRobotInfoState.N_robot_types; Cur_goody_id >= n)
+				Cur_goody_id = n - 1;
+			break;
+		case contained_object_type::powerup:
+			if (const auto n = N_powerup_types; Cur_goody_id >= n)
+				Cur_goody_id = n - 1;
+			break;
+		default:
+			break;
 	}
+}
 
-	GoodyNextID();
-	GoodyPrevID();
+static int GoodyToggleType()
+{
+	Cur_goody_type = (Cur_goody_type == contained_object_type::robot) ? contained_object_type::powerup : contained_object_type::robot;
+	GoodyClampIDLower(Cur_goody_type);
 
 	update_goody_info();
 	return 1;
@@ -269,14 +282,7 @@ static int GoodyPrevType()
 int GoodyNextID()
 {
 	Cur_goody_id++;
-	if (Cur_goody_type == OBJ_ROBOT) {
-		if (Cur_goody_id >= LevelSharedRobotInfoState.N_robot_types)
-			Cur_goody_id=0;
-	} else {
-		if (Cur_goody_id >= N_powerup_types)
-			Cur_goody_id=0;
-	}
-
+	GoodyClampIDLower(Cur_goody_type);
 	update_goody_info();
 	return 1;
 }
@@ -284,13 +290,7 @@ int GoodyNextID()
 int GoodyPrevID()
 {
 	Cur_goody_id--;
-	if (Cur_goody_type == OBJ_ROBOT) {
-		if (Cur_goody_id < 0)
-			Cur_goody_id = LevelSharedRobotInfoState.N_robot_types - 1;
-	} else {
-		if (Cur_goody_id < 0)
-			Cur_goody_id = N_powerup_types-1;
-	}
+	GoodyClampIDUpper(Cur_goody_type);
 
 	update_goody_info();
 	return 1;
@@ -350,7 +350,7 @@ static int LocalObjectSelectNextinSegment(void)
 		}
 
 		const auto &&objp = vmobjptr(Cur_object_index);
-		Cur_goody_type = objp->contains_type;
+		Cur_goody_type = objp->contains.type;
 		Cur_goody_id = objp->contains_id;
 		if (objp->contains_count < 0)
 			objp->contains_count = 0;
@@ -386,7 +386,7 @@ static int LocalObjectSelectNextinMine(void)
 		}
 
 		const auto &&objp = vmobjptr(Cur_object_index);
-		Cur_goody_type = objp->contains_type;
+		Cur_goody_type = objp->contains.type;
 		Cur_goody_id = objp->contains_id;
 		if (objp->contains_count < 0)
 			objp->contains_count = 0;
@@ -422,7 +422,7 @@ static int LocalObjectSelectPrevinMine(void)
 		}
 
 		const auto &&objp = vmobjptr(Cur_object_index);
-		Cur_goody_type = objp->contains_type;
+		Cur_goody_type = objp->contains.type;
 		Cur_goody_id = objp->contains_id;
 		if (objp->contains_count < 0)
 			objp->contains_count = 0;
@@ -450,7 +450,7 @@ static int LocalObjectDelete(void)
 
 	if (Cur_object_index != object_none) {
 		auto &objp = *vcobjptr(Cur_object_index);
-		Cur_goody_type = objp.contains_type;
+		Cur_goody_type = objp.contains.type;
 		Cur_goody_id = objp.contains_id;
 		Cur_goody_count = objp.contains_count;
 	}
@@ -483,7 +483,7 @@ static int LocalObjectPlaceObject(void)
 		return -1;
 
 	const auto &&objp = vmobjptr(Cur_object_index);
-	objp->contains_type = Cur_goody_type;
+	objp->contains.type = Cur_goody_type;
 	objp->contains_id = Cur_goody_id;
 	objp->contains_count = Cur_goody_count;
 
@@ -525,8 +525,8 @@ int do_robot_dialog()
 static window_event_result robot_dialog_created(robot_dialog *const r)
 {
 	r->quitButton = ui_add_gadget_button(*r, 20, 286, 40, 32, "Done", NULL);
-	r->prev_powerup_type = ui_add_gadget_button(*r, GOODY_X+50, GOODY_Y-3, 25, 22, "<<", GoodyPrevType);
-	r->next_powerup_type = ui_add_gadget_button(*r, GOODY_X+80, GOODY_Y-3, 25, 22, ">>", GoodyNextType);
+	r->prev_powerup_type = ui_add_gadget_button(*r, GOODY_X+50, GOODY_Y-3, 25, 22, "<<", GoodyToggleType);
+	r->next_powerup_type = ui_add_gadget_button(*r, GOODY_X+80, GOODY_Y-3, 25, 22, ">>", GoodyToggleType);
 	r->prev_powerup_id = ui_add_gadget_button(*r, GOODY_X+50, GOODY_Y+21, 25, 22, "<<", GoodyPrevID);
 	r->next_powerup_id = ui_add_gadget_button(*r, GOODY_X+80, GOODY_Y+21, 25, 22, ">>", GoodyNextID);
 	r->prev_powerup_count = ui_add_gadget_button(*r, GOODY_X+50, GOODY_Y+45, 25, 22, "<<", GoodyPrevCount);
@@ -690,10 +690,7 @@ window_event_result robot_dialog::callback_handler(const d_event &event)
 	//------------------------------------------------------------
 		gr_set_current_canvas(containsViewBox->canvas);
 		if ((Cur_object_index != object_none ) && (Cur_goody_count > 0))	{
-			if ( Cur_goody_id > -1 )
-				draw_object_picture(*grd_curcanv, Cur_goody_id, goody_angles, Cur_goody_type);
-			else
-				gr_clear_canvas(*grd_curcanv, CGREY);
+				draw_object_picture(*grd_curcanv, Cur_goody_id, goody_angles, underlying_value(Cur_goody_type));
 			goody_angles.h += fixmul(0x1000, DeltaTime );
 		} else {
 			// no object, so just blank out
@@ -711,28 +708,27 @@ window_event_result robot_dialog::callback_handler(const d_event &event)
 
 		if (Cur_object_index != object_none) {
 			const auto &&obj = vmobjptr(Cur_object_index);
-			Cur_goody_type = obj->contains_type;
+			Cur_goody_type = obj->contains.type;
 			Cur_goody_id = obj->contains_id;
 			if (obj->contains_count < 0)
 				obj->contains_count = 0;
 			Cur_goody_count = obj->contains_count;
 		}
 
-		ui_dprintf_at( MainWindow, GOODY_X, GOODY_Y,    " Type:");
-		ui_dprintf_at( MainWindow, GOODY_X, GOODY_Y+24, "   ID:");
-		ui_dprintf_at( MainWindow, GOODY_X, GOODY_Y+48, "Count:");
+		ui_dputs_at(MainWindow, GOODY_X, GOODY_Y,    " Type:");
+		ui_dputs_at(MainWindow, GOODY_X, GOODY_Y+24, "   ID:");
+		ui_dputs_at(MainWindow, GOODY_X, GOODY_Y+48, "Count:");
 
 		switch (Cur_goody_type) {
-			case OBJ_ROBOT:
+			case contained_object_type::robot:
 				type_text = "Robot  ";
-				id_text = Robot_names[Cur_goody_id].data();
+				id_text = Robot_names[static_cast<robot_id>(Cur_goody_id)].data();
 				break;
 			default:
-				editor_status_fmt("Illegal contained object type (%i), changing to powerup.", Cur_goody_type);
-				Cur_goody_type = OBJ_POWERUP;
+				editor_status_fmt("Illegal contained object type (%i), changing to powerup.", underlying_value(std::exchange(Cur_goody_type, contained_object_type::powerup)));
 				Cur_goody_id = 0;
 				[[fallthrough]];
-			case OBJ_POWERUP:
+			case contained_object_type::powerup:
 				type_text = "Powerup";
 				id_text = Powerup_names[Cur_goody_id].data();
 				break;
@@ -746,13 +742,13 @@ window_event_result robot_dialog::callback_handler(const d_event &event)
 			const auto id = get_robot_id(vcobjptr(Cur_object_index));
 
 			ui_dprintf_at( MainWindow, 12,  6, "Robot: %3d ", Cur_object_index );
-			ui_dprintf_at( MainWindow, 12, 22, "   Id: %3d", id);
+			ui_dprintf_at( MainWindow, 12, 22, "   Id: %3d", underlying_value(id));
 			ui_dprintf_at( MainWindow, 12, 38, " Name: %-8s", Robot_names[id].data());
 
 		}	else {
-			ui_dprintf_at( MainWindow, 12,  6, "Robot: none" );
-			ui_dprintf_at( MainWindow, 12, 22, " Type: ?  "  );
-			ui_dprintf_at( MainWindow, 12, 38, " Name: ________" );
+			ui_dputs_at(MainWindow, 12,  6, "Robot: none");
+			ui_dputs_at(MainWindow, 12, 22, " Type: ?");
+			ui_dputs_at(MainWindow, 12, 38, " Name: ________");
 		}
 	}
 	
@@ -880,9 +876,9 @@ window_event_result object_dialog::callback_handler(const d_event &event)
 
 	if (event.type == EVENT_UI_DIALOG_DRAW)
 	{
-		ui_dprintf_at(this, 10, 132,"&X:" );
-		ui_dprintf_at(this, 10, 162,"&Y:" );
-		ui_dprintf_at(this, 10, 192,"&Z:" );
+		ui_dputs_at(this, 10, 132, "&X:");
+		ui_dputs_at(this, 10, 162, "&Y:");
+		ui_dputs_at(this, 10, 192, "&Z:");
 	}
 	
 	if (GADGET_PRESSED(quitButton.get()) || keypress == KEY_ESC)

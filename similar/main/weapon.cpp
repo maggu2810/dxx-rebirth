@@ -1488,7 +1488,7 @@ imobjptridx_t spit_powerup(d_level_unique_object_state &LevelUniqueObjectState, 
 		}
 	}
 
-	const auto &&objp = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_POWERUP, id, vmsegptridx(spitter.segnum), new_pos, &vmd_identity_matrix, Powerup_info[id].size, object::control_type::powerup, object::movement_type::physics, RT_POWERUP);
+	const auto &&objp = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_POWERUP, id, vmsegptridx(spitter.segnum), new_pos, &vmd_identity_matrix, Powerup_info[id].size, object::control_type::powerup, object::movement_type::physics, render_type::RT_POWERUP);
 
 	if (objp == object_none)
 		return objp;
@@ -1530,7 +1530,7 @@ void DropCurrentWeapon (player_info &player_info)
 
 	powerup_type_t drop_type;
 	const auto &Primary_weapon = player_info.Primary_weapon;
-	const auto GrantedItems = (Game_mode & GM_MULTI) ? Netgame.SpawnGrantedItems : 0;
+	const auto GrantedItems = (Game_mode & GM_MULTI) ? Netgame.SpawnGrantedItems : netgrant_flag::None;
 	auto weapon_name = PRIMARY_WEAPON_NAMES(Primary_weapon);
 	if (Primary_weapon == primary_weapon_index_t::LASER_INDEX)
 	{

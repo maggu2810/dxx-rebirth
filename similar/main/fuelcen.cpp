@@ -229,7 +229,7 @@ void trigger_matcen(const vmsegptridx_t segp)
 	auto &&pos = compute_segment_center(vcvertptr, segp);
 	const auto &&delta = vm_vec_sub(vcvertptr(segp->verts.front()), pos);
 	vm_vec_scale_add2(pos, delta, F1_0/2);
-	const auto &&objnum = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_LIGHT, 0, segp, pos, nullptr, 0, object::control_type::light, object::movement_type::None, RT_NONE);
+	const auto &&objnum = obj_create(LevelUniqueObjectState, LevelSharedSegmentState, LevelUniqueSegmentState, OBJ_LIGHT, 0, segp, pos, nullptr, 0, object::control_type::light, object::movement_type::None, render_type::RT_NONE);
 	if (objnum != object_none) {
 		objnum->lifeleft = MATCEN_LIFE;
 		objnum->ctype.light_info.intensity = i2f(8);	//	Light cast by a fuelcen.
@@ -298,13 +298,13 @@ Restart: ;
 
 #define	ROBOT_GEN_TIME (i2f(5))
 
-imobjptridx_t create_morph_robot(const d_robot_info_array &Robot_info, const vmsegptridx_t segp, const vms_vector &object_pos, const unsigned object_id)
+imobjptridx_t create_morph_robot(const d_robot_info_array &Robot_info, const vmsegptridx_t segp, const vms_vector &object_pos, const robot_id object_id)
 {
 	ai_behavior default_behavior;
 	auto &robptr = Robot_info[object_id];
 #if defined(DXX_BUILD_DESCENT_I)
 	default_behavior = ai_behavior::AIB_NORMAL;
-	if (object_id == 10)						//	This is a toaster guy!
+	if (object_id == robot_id::toaster)						//	This is a toaster guy!
 		default_behavior = ai_behavior::AIB_RUN_FROM;
 #elif defined(DXX_BUILD_DESCENT_II)
 	default_behavior = robptr.behavior;
@@ -472,21 +472,20 @@ static void robotmaker_proc(const d_robot_info_array &Robot_info, const d_vclip_
 			const auto &&cur_object_loc = compute_segment_center(vcvertptr, csegp);
 			const auto &&robotcen_segp = vmsegptridx(robotcen->segnum);
 			// HACK!!! The 10 under here should be something equal to the 1/2 the size of the segment.
-			auto obj = object_create_explosion_without_damage(Vclip, robotcen_segp, cur_object_loc, i2f(10), VCLIP_MORPHING_ROBOT);
+			auto obj = object_create_explosion_without_damage(Vclip, robotcen_segp, cur_object_loc, i2f(10), vclip_index::morphing_robot);
 
 			if (obj != object_none)
 				extract_orient_from_segment(vcvertptr, obj->orient, robotcen_segp);
 
-			if ( Vclip[VCLIP_MORPHING_ROBOT].sound_num > -1 )		{
-				digi_link_sound_to_pos(Vclip[VCLIP_MORPHING_ROBOT].sound_num, robotcen_segp, sidenum_t::WLEFT, cur_object_loc, 0, F1_0);
-			}
+			digi_link_sound_to_pos(Vclip[vclip_index::morphing_robot].sound_num, robotcen_segp, sidenum_t::WLEFT, cur_object_loc, 0, F1_0);
 			robotcen->Flag	= 1;
 			robotcen->Timer = 0;
 
 		}
 		break;
 	case 1:			// Wait until 1/2 second after VCLIP started.
-		if (robotcen->Timer > (Vclip[VCLIP_MORPHING_ROBOT].play_time/2) )	{
+		if (robotcen->Timer > Vclip[vclip_index::morphing_robot].play_time / 2)
+		{
 
 			robotcen->Capacity -= EnergyToCreateOneRobot;
 			robotcen->Flag = 0;
@@ -496,8 +495,7 @@ static void robotmaker_proc(const d_robot_info_array &Robot_info, const d_vclip_
 
 			// If this is the first materialization, set to valid robot.
 			{
-				int	type;
-				ubyte   legal_types[sizeof(mi->robot_flags) * 8];   // the width of robot_flags[].
+				std::array<robot_id, sizeof(mi->robot_flags) * 8> legal_types;   // the width of robot_flags[].
 				int	num_types;
 
 				num_types = 0;
@@ -509,15 +507,14 @@ static void robotmaker_proc(const d_robot_info_array &Robot_info, const d_vclip_
 					for (unsigned j = 0; flags && j < 8 * sizeof(flags); ++j)
 					{
 						if (flags & 1)
-							legal_types[num_types++] = (i * 32) + j;
+							legal_types[num_types++] = static_cast<robot_id>((i * 32) + j);
 						flags >>= 1;
 					}
 				}
 
-				if (num_types == 1)
-					type = legal_types[0];
-				else
-					type = legal_types[(d_rand() * num_types) / 32768];
+				const robot_id type = (num_types == 1)
+					? legal_types[0]
+					: legal_types[(d_rand() * num_types) / 32768];
 
 				const auto &&obj = create_morph_robot(Robot_info, vmsegptridx(robotcen->segnum), cur_object_loc, type );
 				if (obj != object_none) {
@@ -736,16 +733,16 @@ void fuelcen_check_for_goal(object &plrobj, const shared_segment &segp)
 {
 	Assert (game_mode_capture_flag());
 
-	unsigned check_team;
+	team_number check_team;
 	powerup_type_t powerup_to_drop;
 	switch(segp.special)
 	{
 		case segment_special::goal_blue:
-			check_team = TEAM_BLUE;
+			check_team = team_number::blue;
 			powerup_to_drop = POW_FLAG_RED;
 			break;
 		case segment_special::goal_red:
-			check_team = TEAM_RED;
+			check_team = team_number::red;
 			powerup_to_drop = POW_FLAG_BLUE;
 			break;
 		default:

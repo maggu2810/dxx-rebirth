@@ -29,6 +29,7 @@
 
 #include "compiler-range_for.h"
 #include "compiler-poison.h"
+#include "d_enumerate.h"
 #include "partial_range.h"
 
 namespace dcx {
@@ -352,11 +353,18 @@ int PHYSFSX_fsize(const char *hogname)
 
 void PHYSFSX_listSearchPathContent()
 {
+	if (!(CON_DEBUG <= CGameArg.DbgVerbose))
+		/* Skip retrieving the path contents if the verbosity level will
+		 * prevent showing the results.
+		 */
+		return;
 	con_puts(CON_DEBUG, "PHYSFS: Listing contents of Search Path.");
-	for (const auto i : PHYSFSX_uncounted_list{PHYSFS_getSearchPath()})
-		con_printf(CON_DEBUG, "PHYSFS: [%s] is in the Search Path.", i);
-	for (const auto i : PHYSFSX_uncounted_list{PHYSFS_enumerateFiles("")})
-		con_printf(CON_DEBUG, "PHYSFS: * We've got [%s].", i);
+	if (const auto s{PHYSFSX_uncounted_list{PHYSFS_getSearchPath()}})
+		for (const auto &&[idx, entry] : enumerate(s))
+			con_printf(CON_DEBUG, "PHYSFS: search path entry #%" DXX_PRI_size_type ": %s", idx, entry);
+	if (const auto s{PHYSFSX_uncounted_list{PHYSFS_enumerateFiles("")}})
+		for (const auto &&[idx, entry] : enumerate(s))
+			con_printf(CON_DEBUG, "PHYSFS: found file #%" DXX_PRI_size_type ": %s", idx, entry);
 }
 
 }
@@ -565,19 +573,15 @@ std::pair<RAIIPHYSFS_File, PHYSFS_ErrorCode> PHYSFSX_openWriteBuffered(const cha
 	return {std::move(fp), PHYSFS_ERR_OK};
 }
 
-/* 
- * Add archives to the game.
- * 1) archives from Sharepath/Data to extend/replace builtin game content
- * 2) archived demos
- */
-void PHYSFSX_addArchiveContent()
+static uint8_t add_archives_to_search_path()
 {
-	int content_updated = 0;
-
-	con_puts(CON_DEBUG, "PHYSFS: Adding archives to the game.");
+	uint8_t content_updated{};
 	// find files in Searchpath ...
 	// if found, add them...
-	for (const auto i : PHYSFSX_findFiles("", archive_exts))
+	const auto s{PHYSFSX_findFiles("", archive_exts)};
+	if (!s)
+		return content_updated;
+	for (const auto i : s)
 	{
 		std::array<char, PATH_MAX> realfile;
 		if (PHYSFSX_getRealPath(i, realfile) && PHYSFS_mount(realfile.data(), nullptr, 0))
@@ -586,7 +590,11 @@ void PHYSFSX_addArchiveContent()
 			content_updated = 1;
 		}
 	}
-#if PHYSFS_VER_MAJOR >= 2
+	return content_updated;
+}
+
+static uint8_t add_demo_files_to_search_path(uint8_t content_updated)
+{
 	// find files in DEMO_DIR ...
 	// if found, add them...
 	for (const auto i : PHYSFSX_findFiles(DEMO_DIR, archive_exts))
@@ -600,7 +608,19 @@ void PHYSFSX_addArchiveContent()
 			content_updated = 1;
 		}
 	}
-#endif
+	return content_updated;
+}
+
+/*
+ * Add archives to the game.
+ * 1) archives from Sharepath/Data to extend/replace builtin game content
+ * 2) archived demos
+ */
+void PHYSFSX_addArchiveContent()
+{
+	con_puts(CON_DEBUG, "PHYSFS: Adding archives to the game.");
+	auto content_updated{add_archives_to_search_path()};
+	content_updated = add_demo_files_to_search_path(content_updated);
 	if (content_updated)
 	{
 		con_puts(CON_DEBUG, "Game content updated!");

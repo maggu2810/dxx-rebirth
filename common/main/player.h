@@ -57,6 +57,12 @@ enum class player_connection_status : uint8_t
 	end_menu,
 };
 
+enum class team_number : uint8_t
+{
+	blue,
+	red,
+};
+
 struct d_player_unique_endlevel_state
 {
 	segnum_t transition_segnum;
@@ -183,7 +189,7 @@ namespace dcx {
 struct player_ship
 {
 	polygon_model_index model_num;
-	int     expl_vclip_num;
+	vclip_index expl_vclip_num;
 	fix     mass,drag;
 	fix     max_thrust,reverse_thrust,brakes;       //low_thrust
 	fix     wiggle;

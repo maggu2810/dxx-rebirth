@@ -79,7 +79,7 @@ enum object_type_t : uint8_t
 	OBJ_MARKER	= 15,  // a map marker
 };
 
-enum render_type_t : uint8_t
+enum class render_type : uint8_t
 {
 	RT_NONE = 0,   // does not render
 	RT_POLYOBJ = 1,   // a polygon model
@@ -89,6 +89,13 @@ enum render_type_t : uint8_t
 	RT_POWERUP = 5,   // a powerup
 	RT_MORPH = 6,   // a robot being morphed
 	RT_WEAPON_VCLIP = 7,   // a weapon that renders as a vclip
+};
+
+enum class contained_object_type : uint8_t
+{
+	None,
+	robot = object_type_t::OBJ_ROBOT,
+	powerup = object_type_t::OBJ_POWERUP,
 };
 
 enum class gun_num_t : uint8_t
@@ -106,19 +113,24 @@ static inline bool valid_render_type(const uint8_t r)
 {
 	switch (r)
 	{
-		case RT_NONE:
-		case RT_POLYOBJ:
-		case RT_FIREBALL:
-		case RT_LASER:
-		case RT_HOSTAGE:
-		case RT_POWERUP:
-		case RT_MORPH:
-		case RT_WEAPON_VCLIP:
+		case static_cast<uint8_t>(render_type::RT_NONE):
+		case static_cast<uint8_t>(render_type::RT_POLYOBJ):
+		case static_cast<uint8_t>(render_type::RT_FIREBALL):
+		case static_cast<uint8_t>(render_type::RT_LASER):
+		case static_cast<uint8_t>(render_type::RT_HOSTAGE):
+		case static_cast<uint8_t>(render_type::RT_POWERUP):
+		case static_cast<uint8_t>(render_type::RT_MORPH):
+		case static_cast<uint8_t>(render_type::RT_WEAPON_VCLIP):
 			return true;
 		default:
 			return false;
 	}
 }
+
+struct contained_object_parameters
+{
+	contained_object_type type;	// Type of object this robot contains (eg, spider contains powerup)
+};
 
 }
 
@@ -271,10 +283,6 @@ struct laser_info : prohibit_void_ptr<laser_info>, laser_parent
 	}
 };
 
-}
-
-namespace dcx {
-
 // Same as above but structure Savegames/Multiplayer objects expect
 struct laser_info_rw
 {
@@ -344,7 +352,7 @@ namespace dcx {
 
 struct vclip_info : prohibit_void_ptr<vclip_info>
 {
-	int     vclip_num;
+	vclip_index vclip_num;
 	fix     frametime;
 	uint8_t framenum;
 };
@@ -386,7 +394,7 @@ struct object_base
 	objnum_t   next,prev;      // id of next and previous connected object in Objects, -1 = no connection
 	enum control_type control_source;   // how this object is controlled
 	enum movement_type movement_source; // how this object moves
-	render_type_t render_type;    // how this object renders
+	enum render_type render_type;    // how this object renders
 	ubyte   flags;          // misc flags
 	segnum_t   segnum;         // segment number containing object
 	objnum_t   attached_obj;   // number of attached fireball object
@@ -394,7 +402,7 @@ struct object_base
 	vms_matrix orient;      // orientation of object in world
 	fix     size;           // 3d size of object - for collision detection
 	fix     shields;        // Starts at maximum, when <0, object dies..
-	sbyte   contains_type;  // Type of object this object contains (eg, spider contains powerup)
+	contained_object_parameters contains;
 	sbyte   contains_id;    // ID of object this object contains (eg, id = blue type = key)
 	sbyte   contains_count; // number of objects of type:id this object contains
 	sbyte   matcen_creator; // Materialization center that created this object, high bit set if matcen-created
@@ -621,10 +629,10 @@ namespace dsx {
 // initialize a new object.  adds to the list for the given segment
 // returns the object number
 [[nodiscard]]
-imobjptridx_t obj_create(d_level_unique_object_state &LevelUniqueObjectState, const d_level_shared_segment_state &LevelSharedSegmentState, d_level_unique_segment_state &LevelUniqueSegmentState, object_type_t type, unsigned id, vmsegptridx_t segnum, const vms_vector &pos, const vms_matrix *orient, fix size, enum object::control_type ctype, enum object::movement_type mtype, render_type_t rtype);
+imobjptridx_t obj_create(d_level_unique_object_state &LevelUniqueObjectState, const d_level_shared_segment_state &LevelSharedSegmentState, d_level_unique_segment_state &LevelUniqueSegmentState, object_type_t type, unsigned id, vmsegptridx_t segnum, const vms_vector &pos, const vms_matrix *orient, fix size, enum object::control_type ctype, enum object::movement_type mtype, render_type rtype);
 
 [[nodiscard]]
-imobjptridx_t obj_weapon_create(d_level_unique_object_state &LevelUniqueObjectState, const d_level_shared_segment_state &LevelSharedSegmentState, d_level_unique_segment_state &LevelUniqueSegmentState, const weapon_info_array &Weapon_info, unsigned id, vmsegptridx_t segnum, const vms_vector &pos, fix size, render_type_t rtype);
+imobjptridx_t obj_weapon_create(d_level_unique_object_state &LevelUniqueObjectState, const d_level_shared_segment_state &LevelSharedSegmentState, d_level_unique_segment_state &LevelUniqueSegmentState, const weapon_info_array &Weapon_info, unsigned id, vmsegptridx_t segnum, const vms_vector &pos, fix size, render_type rtype);
 
 #if defined(DXX_BUILD_DESCENT_II)
 
@@ -771,6 +779,8 @@ window_event_result endlevel_move_all_objects(const d_level_shared_robot_info_st
 
 namespace dcx {
 
+contained_object_type build_contained_object_type_from_untrusted(uint8_t untrusted);
+
 static inline unsigned get_player_id(const object_base &o)
 {
 	return o.id;
@@ -781,14 +791,14 @@ static inline uint8_t get_reactor_id(const object_base &o)
 	return o.id;
 }
 
-static inline uint8_t get_fireball_id(const object_base &o)
+static constexpr vclip_index get_fireball_id(const object_base &o)
 {
-	return o.id;
+	return vclip_index{o.id};
 }
 
-static inline uint8_t get_robot_id(const object_base &o)
+static inline robot_id get_robot_id(const object_base &o)
 {
-	return o.id;
+	return robot_id{o.id};
 }
 
 static inline void set_player_id(object_base &o, const uint8_t id)
@@ -801,9 +811,9 @@ static inline void set_reactor_id(object_base &o, const uint8_t id)
 	o.id = id;
 }
 
-static inline void set_robot_id(object_base &o, const uint8_t id)
+static inline void set_robot_id(object_base &o, const robot_id id)
 {
-	o.id = id;
+	o.id = {static_cast<std::underlying_type<robot_id>::type>(id)};
 }
 
 void check_warn_object_type(const object_base &, object_type_t, const char *file, unsigned line);

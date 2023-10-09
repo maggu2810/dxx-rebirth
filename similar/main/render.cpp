@@ -937,45 +937,50 @@ constexpr std::array<
 //given an edge, tell what side is on that edge
 static std::optional<sidenum_t> find_seg_side(const shared_segment &seg, const std::array<vertnum_t, 2> &verts, const sidenum_t notside)
 {
-	const auto v0 = verts[0];
-	const auto v1 = verts[1];
+	const auto v0{verts[0]};
+	const auto v1{verts[1]};
 
-	const auto b = begin(seg.verts);
-	const auto e = end(seg.verts);
-	auto iv0 = e;
-	auto iv1 = e;
+	const auto b{begin(seg.verts)};
+	const auto e{end(seg.verts)};
+	auto iv0{e};
+	auto iv1{e};
 	for (auto i = b;;)
 	{
 		if (iv0 == e && *i == v0)
 		{
 			iv0 = i;
 			if (iv1 != e)
+				/* If both iterators are set, break */
 				break;
 		}
 		if (iv1 == e && *i == v1)
 		{
 			iv1 = i;
 			if (iv0 != e)
+				/* If both iterators are set, break */
 				break;
 		}
 		if (++i == e)
-			return {};
+			return std::nullopt;
 	}
 
 	const auto &eptr = Edge_to_sides[std::distance(b, iv0)][std::distance(b, iv1)];
 
-	const auto side0 = eptr[0];
-	const auto side1 = eptr[1];
-
-	Assert(side0 != side_none && side1 != side_none);
+	const auto side0{eptr[0]};
+	const auto side1{eptr[1]};
+	if (side0 == side_none && side1 == side_none)
+		/* This never happens in a well-formed level.  However, levels with
+		 * invalid geometry can trigger this path.
+		 */
+		return std::nullopt;
 
 	if (side0 != notside) {
 		Assert(side1==notside);
-		return static_cast<sidenum_t>(side0);
+		return side0;
 	}
 	else {
 		Assert(side0==notside);
-		return static_cast<sidenum_t>(side1);
+		return side1;
 	}
 }
 
@@ -1100,7 +1105,7 @@ bool render_compare_context_t::operator()(const distant_object &a, const distant
 		//or laser or something that should plot on top.  Don't do this for
 		//the afterburner blobs, though.
 
-		if (obj_a->type == OBJ_WEAPON || (obj_a->type == OBJ_FIREBALL && get_fireball_id(*obj_a) != VCLIP_AFTERBURNER_BLOB))
+		if (obj_a->type == OBJ_WEAPON || (obj_a->type == OBJ_FIREBALL && get_fireball_id(*obj_a) != vclip_index::afterburner_blob))
 		{
 			if (!(obj_b->type == OBJ_WEAPON || obj_b->type == OBJ_FIREBALL))
 				return true;	//a is weapon, b is not, so say a is closer
@@ -1108,7 +1113,7 @@ bool render_compare_context_t::operator()(const distant_object &a, const distant
 		}
 		else
 		{
-			if (obj_b->type == OBJ_WEAPON || (obj_b->type == OBJ_FIREBALL && get_fireball_id(*obj_b) != VCLIP_AFTERBURNER_BLOB))
+			if (obj_b->type == OBJ_WEAPON || (obj_b->type == OBJ_FIREBALL && get_fireball_id(*obj_b) != vclip_index::afterburner_blob))
 				return false;	//b is weapon, a is not, so say a is farther
 		}
 
@@ -1166,7 +1171,7 @@ static void build_object_lists(object_array &Objects, fvcsegptr &vcsegptr, const
 				if (obj->type != OBJ_CNTRLCEN)		//don't migrate controlcen
 #elif defined(DXX_BUILD_DESCENT_II)
 				const int did_migrate = 0;
-				if (obj->type != OBJ_CNTRLCEN && !(obj->type==OBJ_ROBOT && get_robot_id(obj)==65))		//don't migrate controlcen
+				if (obj->type != OBJ_CNTRLCEN && !(obj->type==OBJ_ROBOT && get_robot_id(obj) == robot_id::special_reactor))		//don't migrate controlcen
 #endif
 				do {
 #if defined(DXX_BUILD_DESCENT_I)

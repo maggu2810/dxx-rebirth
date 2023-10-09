@@ -38,6 +38,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 namespace dcx {
 
 enum class opengl_texture_filter : uint8_t;
+enum class music_type : uint8_t;
 
 // play-order definitions for custom music
 /* These values are written to a file as integers, so they must not be
@@ -54,6 +55,8 @@ struct CCfg : prohibit_void_ptr<CCfg>
 {
 	uint16_t ResolutionX;
 	uint16_t ResolutionY;
+	uint8_t AspectX;
+	uint8_t AspectY;
 #if DXX_USE_ADLMIDI
 	int ADLMIDI_num_chips = 6;
 	/* See common/include/adlmidi_dynamic.h for the symbolic name and for other
@@ -70,6 +73,11 @@ struct CCfg : prohibit_void_ptr<CCfg>
 	bool Multisample;
 	bool FPSIndicator;
 	uint8_t GammaLevel;
+	bool ReverseStereo;
+	bool OrigTrackOrder;
+	uint8_t DigiVolume;
+	uint8_t MusicVolume;
+	music_type MusicType;
 	LevelMusicPlayOrder CMLevelMusicPlayOrder;
 	std::array<int, 2> CMLevelMusicTrack;
 	ntstring<MISSION_NAME_LEN> LastMission;
@@ -84,13 +92,6 @@ extern struct CCfg CGameCfg;
 namespace dsx {
 struct Cfg : prohibit_void_ptr<Cfg>
 {
-	int MusicType;
-	int AspectX;
-	int AspectY;
-	uint8_t DigiVolume;
-	uint8_t MusicVolume;
-	bool ReverseStereo;
-	bool OrigTrackOrder;
 #ifdef DXX_BUILD_DESCENT_II
 	bool MovieSubtitles;
 	int MovieTexFilt;

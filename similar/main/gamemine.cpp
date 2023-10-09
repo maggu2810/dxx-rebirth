@@ -78,16 +78,16 @@ static segment_special build_segment_special_from_untrusted(uint8_t untrusted)
 
 static materialization_center_number build_materialization_center_number_from_untrusted(uint8_t untrusted)
 {
-	if (decltype(d_level_shared_robotcenter_state::RobotCenters)::valid_index(untrusted))
-		return materialization_center_number{untrusted};
+	if (const auto o = decltype(d_level_shared_robotcenter_state::RobotCenters)::valid_index(untrusted))
+		return *o;
 	else
 		return materialization_center_number::None;
 }
 
 static station_number build_station_number_from_untrusted(uint8_t untrusted)
 {
-	if (decltype(d_level_unique_fuelcenter_state::Station)::valid_index(untrusted))
-		return station_number{untrusted};
+	if (const auto o = decltype(d_level_unique_fuelcenter_state::Station)::valid_index(untrusted))
+		return *o;
 	else
 		return station_number::None;
 }
@@ -103,11 +103,11 @@ static void segment2_read(const msmusegment s2, PHYSFS_File *fp)
 	 * it here for compatibility with how the game previously worked */
 	s2.s.station_idx = build_station_number_from_untrusted(PHYSFSX_readByte(fp));
 	const auto s2_flags = PHYSFSX_readByte(fp);
-#if defined(DXX_BUILD_DESCENT_I)
-	(void)s2_flags;	// descent 2 ambient sound handling
-#elif defined(DXX_BUILD_DESCENT_II)
-	s2.s.s2_flags = s2_flags;
-#endif
+	/* Ambient sounds are recomputed by the level load code.  Ignore the value
+	 * read from the file.
+	 */
+	(void)s2_flags;
+	s2.s.s2_flags = {};
 	s2.u.static_light = PHYSFSX_readFix(fp);
 }
 }
@@ -374,7 +374,7 @@ uint16_t convert_d1_tmap_num(const uint16_t d1_tmap_num)
 			if (orient != 0) {
 				return orient | convert_d1_tmap_num(tmap_num);
 			} else {
-				Warning("can't convert unknown descent 1 texture #%d.\n", tmap_num);
+				Warning("Failed to convert unknown Descent 1 texture #%d.", tmap_num);
 				return d1_tmap_num;
 			}
 		}

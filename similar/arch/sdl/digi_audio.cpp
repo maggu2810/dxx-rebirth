@@ -215,7 +215,7 @@ int digi_audio_init()
 
 	if ( SDL_OpenAudio(&WaveSpec, NULL) < 0 ) {
 		//edited on 10/05/98 by Matt Mueller - should keep running, just with no sound.
-		Warning("\nError: Couldn't open audio: %s\n", SDL_GetError());
+		Warning("Failed to open audio: %s", SDL_GetError());
 		//killed  exit(2);
 		return 1;
 		//end edit -MM
@@ -224,7 +224,7 @@ int digi_audio_init()
 
 	digi_initialised = 1;
 
-	digi_audio_set_digi_volume( (GameCfg.DigiVolume*32768)/8 );
+	digi_audio_set_digi_volume((CGameCfg.DigiVolume * 32768) / 8);
 	return 0;
 }
 

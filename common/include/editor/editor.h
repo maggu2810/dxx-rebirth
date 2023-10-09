@@ -421,8 +421,8 @@ segnum_t get_free_segment_number(segment_array &);
 #define diagnostic_message_fmt editor_status_fmt
 
 //      Editor status message.
+void editor_status_fmt(const char *) = delete;
 extern void editor_status_fmt(const char *format, ... ) __attribute_format_printf(1, 2);
-#define editor_status_fmt(F,...)	dxx_call_printf_checked(editor_status_fmt,editor_status,(),(F),##__VA_ARGS__)
 
 // Variables in editor.c that the k*.c files need
 
@@ -540,7 +540,7 @@ void close_editor_screen(void);
 #ifdef dsx
 namespace dsx {
 //    From eobject.c
-int place_object(d_level_unique_object_state &LevelUniqueObjectState, const d_level_shared_polygon_model_state &LevelSharedPolygonModelState, const d_robot_info_array &Robot_info, const d_level_shared_segment_state &LevelSharedSegmentState, d_level_unique_segment_state &LevelUniqueSegmentState, vmsegptridx_t segp, const vms_vector &object_pos, short object_type, short object_id);
+int place_object(d_level_unique_object_state &LevelUniqueObjectState, const d_level_shared_polygon_model_state &LevelSharedPolygonModelState, const d_robot_info_array &Robot_info, const d_level_shared_segment_state &LevelSharedSegmentState, d_level_unique_segment_state &LevelUniqueSegmentState, vmsegptridx_t segp, const vms_vector &object_pos, short object_type, uint8_t object_id);
 
 // from ksegsize.c
 void med_extract_up_vector_from_segment_side(const shared_segment &sp, sidenum_t sidenum, vms_vector &vp);

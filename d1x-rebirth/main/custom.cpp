@@ -14,7 +14,7 @@
 #include "pstypes.h"
 #include "piggy.h"
 #include "textures.h"
-#include "robot.h"
+#include "ai.h"
 #include "weapon.h"
 #include "digi.h"
 #include "hash.h"
@@ -102,8 +102,6 @@ struct bitmap_original
 };
 
 constexpr std::integral_constant<uint8_t, 0x80> BM_FLAG_CUSTOMIZED{};
-
-}
 
 static enumerated_array<bitmap_original, MAX_BITMAP_FILES, bitmap_index> BitmapOriginal;
 static std::array<snd_info, MAX_SOUND_FILES> SoundOriginal;
@@ -393,9 +391,9 @@ static int read_d2_robot_info(PHYSFS_File *fp, robot_info &ri)
 		PHYSFSX_readVector(fp, j);
 	for (auto &j : ri.gun_submodels)
 		j = PHYSFSX_readByte(fp);
-	ri.exp1_vclip_num = PHYSFSX_readShort(fp);
+	ri.exp1_vclip_num = build_vclip_index_from_untrusted(PHYSFSX_readShort(fp));
 	ri.exp1_sound_num = PHYSFSX_readShort(fp);
-	ri.exp2_vclip_num = PHYSFSX_readShort(fp);
+	ri.exp2_vclip_num = build_vclip_index_from_untrusted(PHYSFSX_readShort(fp));
 	ri.exp2_sound_num = PHYSFSX_readShort(fp);
 	const auto weapon_type = PHYSFSX_readByte(fp);
 	ri.weapon_type = weapon_type < N_weapon_types ? static_cast<weapon_id_type>(weapon_type) : weapon_id_type::LASER_ID_L1;
@@ -404,7 +402,8 @@ static int read_d2_robot_info(PHYSFS_File *fp, robot_info &ri)
 	ri.contains_id = PHYSFSX_readByte(fp);
 	ri.contains_count = PHYSFSX_readByte(fp);
 	ri.contains_prob = PHYSFSX_readByte(fp);
-	ri.contains_type = PHYSFSX_readByte(fp);
+	const uint8_t contains_type = PHYSFSX_readByte(fp);
+	ri.contains.type = build_contained_object_type_from_untrusted(contains_type);
 	/*ri.kamikaze =*/ PHYSFSX_readByte(fp);
 	ri.score_value = PHYSFSX_readShort(fp);
 	/*ri.badass =*/ PHYSFSX_readByte(fp);
@@ -441,7 +440,8 @@ static int read_d2_robot_info(PHYSFS_File *fp, robot_info &ri)
 	ri.attack_sound = PHYSFSX_readByte(fp);
 	ri.claw_sound = PHYSFSX_readByte(fp);
 	/*ri.taunt_sound =*/ PHYSFSX_readByte(fp);
-	ri.boss_flag = PHYSFSX_readByte(fp);
+	const uint8_t boss_flag = PHYSFSX_readByte(fp);
+	ri.boss_flag = (boss_flag == static_cast<uint8_t>(boss_robot_id::d1_1) || boss_flag == static_cast<uint8_t>(boss_robot_id::d1_superboss)) ? boss_robot_id{boss_flag} : boss_robot_id::None;
 	/*ri.companion =*/ PHYSFSX_readByte(fp);
 	/*ri.smart_blobs =*/ PHYSFSX_readByte(fp);
 	/*ri.energy_blobs =*/ PHYSFSX_readByte(fp);
@@ -471,7 +471,11 @@ static int read_d2_robot_info(PHYSFS_File *fp, robot_info &ri)
 	return 1;
 }
 
+}
+
 namespace dsx {
+
+namespace {
 
 static void load_hxm(const d_fname &hxmname)
 {
@@ -508,7 +512,8 @@ static void load_hxm(const d_fname &hxmname)
 			}
 			else
 			{
-				if (!(read_d2_robot_info(f, Robot_info[repl_num])))
+				static_assert(MAX_ROBOT_TYPES <= UINT8_MAX);
+				if (!(read_d2_robot_info(f, Robot_info[static_cast<robot_id>(repl_num)])))
 				{
 					return;
 				}
@@ -566,14 +571,12 @@ static void load_hxm(const d_fname &hxmname)
 	{
 		for (i = 0; i < n_items; i++)
 		{
-			const auto oi = static_cast<object_bitmap_index>(PHYSFSX_readInt(f));
+			const auto oi = PHYSFSX_readInt(f);
 			auto v = PHYSFSX_readShort(f);
-			if (ObjBitmaps.valid_index(oi))
-				ObjBitmaps[oi] = bitmap_index{static_cast<uint16_t>(v)};
+			if (const auto voi = ObjBitmaps.valid_index(oi))
+				ObjBitmaps[*voi] = bitmap_index{static_cast<uint16_t>(v)};
 		}
 	}
-}
-
 }
 
 // undo customized items
@@ -618,6 +621,10 @@ static void custom_remove()
 			GameSounds[i].length = SoundOriginal[i].length & 0x7fffffff;
 			SoundOriginal[i].length = 0;
 		}
+}
+
+}
+
 }
 
 void load_custom_data(const d_fname &level_name)

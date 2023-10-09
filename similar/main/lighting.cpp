@@ -101,7 +101,7 @@ static fix compute_player_light_emission_intensity(const object_base &objp)
 static fix compute_fireball_light_emission_intensity(const d_vclip_array &Vclip, const object_base &objp)
 {
 	const auto oid = get_fireball_id(objp);
-	if (oid >= Vclip.size())
+	if (!Vclip.valid_index(oid))
 		return 0;
 	auto &v = Vclip[oid];
 	const auto light_intensity = v.light_value;
@@ -335,7 +335,7 @@ static g3s_lrgb build_object_color_from_range(GameBitmaps_array &GameBitmaps, co
 	return obj_color;
 }
 
-static g3s_lrgb build_object_color_from_vclip(GameBitmaps_array &GameBitmaps, const d_vclip_array &Vclip, const std::size_t id)
+static g3s_lrgb build_object_color_from_vclip(GameBitmaps_array &GameBitmaps, const d_vclip_array &Vclip, const vclip_index id)
 {
 	auto &v = Vclip[id];
 	auto &f = v.frames;
@@ -348,7 +348,7 @@ static g3s_lrgb build_object_color(GameBitmaps_array &GameBitmaps, const object_
 {
 	switch (objp.render_type)
 	{
-		case RT_POLYOBJ:
+		case render_type::RT_POLYOBJ:
 		{
 			auto &Polygon_models = LevelSharedPolygonModelState.Polygon_models;
 			const polymodel *const po = &Polygon_models[objp.rtype.pobj_info.model_num];
@@ -367,20 +367,20 @@ static g3s_lrgb build_object_color(GameBitmaps_array &GameBitmaps, const object_
 			/* If no color either, fall through and use a generic value */
 		}
 		[[fallthrough]];
-		case RT_NONE:
+		case render_type::RT_NONE:
 			// no object - no light
 			return {255, 255, 255};
-		case RT_LASER:
+		case render_type::RT_LASER:
 		{
 			const bitmap_index t_idx_s = Weapon_info[get_weapon_id(objp)].bitmap;
 			return build_object_color_from_bitmap(GameBitmaps, t_idx_s, GameBitmaps[t_idx_s]);
 		}
-		case RT_POWERUP:
+		case render_type::RT_POWERUP:
 			return build_object_color_from_vclip(GameBitmaps, Vclip, objp.rtype.vclip_info.vclip_num);
-		case RT_WEAPON_VCLIP:
+		case render_type::RT_WEAPON_VCLIP:
 			return build_object_color_from_vclip(GameBitmaps, Vclip, Weapon_info[get_weapon_id(objp)].weapon_vclip);
 		default:
-			return build_object_color_from_vclip(GameBitmaps, Vclip, objp.id);
+			return build_object_color_from_vclip(GameBitmaps, Vclip, vclip_index{objp.id});
 	}
 }
 

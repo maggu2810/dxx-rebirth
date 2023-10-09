@@ -54,6 +54,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #endif
 #include "null_sentinel_iterator.h"
 
+#include "compiler-cf_assert.h"
 #include "compiler-poison.h"
 #include "compiler-range_for.h"
 #include "d_enumerate.h"
@@ -274,20 +275,29 @@ static void allocate_shareware_levels(const unsigned count_regular_level, const 
 	Current_mission->ending_text_filename = BIMD1_ENDING_FILE_SHARE;
 	allocate_levels(count_regular_level, count_secret_level);
 	//build level names
-	for (const auto &&[idx, name] : enumerate(unchecked_partial_range(Current_mission->level_names.get(), count_regular_level), 1u))
+	for (const auto &&[idx, name] : enumerate(std::span(Current_mission->level_names.get(), count_regular_level), 1u))
+	{
+		cf_assert(idx <= count_regular_level);
 		snprintf(&name[0u], name.size(), "level%02u.sdl", idx);
+	}
 }
 
 static void build_rdl_regular_level_names(const unsigned count_regular_level, std::unique_ptr<d_fname[]> &names)
 {
-	for (auto &&[idx, name] : enumerate(unchecked_partial_range(names.get(), count_regular_level), 1u))
+	for (auto &&[idx, name] : enumerate(std::span(names.get(), count_regular_level), 1u))
+	{
+		cf_assert(idx <= count_regular_level);
 		snprintf(&name[0u], name.size(), "level%02u.rdl", idx);
+	}
 }
 
 static void build_rdl_secret_level_names(const unsigned count_secret_level, std::unique_ptr<d_fname[]> &names)
 {
-	for (auto &&[idx, name] : enumerate(unchecked_partial_range(names.get(), count_secret_level), 1u))
+	for (auto &&[idx, name] : enumerate(std::span(names.get(), count_secret_level), 1u))
+	{
+		cf_assert(idx <= count_secret_level);
 		snprintf(&name[0u], name.size(), "levels%1u.rdl", idx);
+	}
 }
 
 //
@@ -362,7 +372,10 @@ static void load_mission_shareware()
     switch (Current_mission->builtin_hogsize)
 	{
 		case MAC_SHARE_MISSION_HOGSIZE:
-			allocate_levels(4, 1);
+			{
+				constexpr unsigned last_level = 4;
+				allocate_levels(last_level, 1);
+			}
 			// mac demo is using the regular hog and rl2 files
 			Current_mission->level_names[0] = "d2leva-1.rl2";
 			Current_mission->level_names[1] = "d2leva-2.rl2";
@@ -374,7 +387,10 @@ static void load_mission_shareware()
 			Int3();
 			[[fallthrough]];
 		case SHAREWARE_MISSION_HOGSIZE:
-			allocate_levels(3, 0);
+			{
+				constexpr unsigned last_level = 3;
+				allocate_levels(last_level, 0);
+			}
 			Current_mission->level_names[0] = "d2leva-1.sl2";
 			Current_mission->level_names[1] = "d2leva-2.sl2";
 			Current_mission->level_names[2] = "d2leva-3.sl2";
@@ -393,7 +409,10 @@ static void load_mission_oem()
     Current_mission->descent_version = Mission::descent_version_type::descent2;
     Current_mission->anarchy_only_flag = Mission::anarchy_only_level::allow_any_game;
     
-	allocate_levels(8, 2);
+	{
+		constexpr unsigned last_level = 8;
+		allocate_levels(last_level, 2);
+	}
 	Current_mission->level_names[0] = "d2leva-1.rl2";
 	Current_mission->level_names[1] = "d2leva-2.rl2";
 	Current_mission->level_names[2] = "d2leva-3.rl2";
@@ -579,7 +598,7 @@ static void add_d1_builtin_mission_to_list(mission_list_type &mission_list)
 		mission->mission_name.copy_if(D1_OEM_MISSION_NAME);
 		break;
 	default:
-		Warning("Unknown D1 hogsize %d\n", underlying_value(size));
+		Warning("Unknown D1 hogsize %d", underlying_value(size));
 		Int3();
 		[[fallthrough]];
 		case descent_hog_size::pc_retail_v15:
@@ -625,7 +644,7 @@ static void add_builtin_mission_to_list(mission_list_type &mission_list, d_fname
 		set_hardcoded_mission(mission_list, OEM_MISSION_FILENAME, OEM_MISSION_NAME);
 		break;
 	default:
-		Warning("Unknown hogsize %d, trying %s\n", size, FULL_MISSION_FILENAME MISSION_EXTENSION_DESCENT_II);
+		Warning("Unknown hogsize %d, trying %s", size, FULL_MISSION_FILENAME MISSION_EXTENSION_DESCENT_II);
 		Int3();
 		[[fallthrough]];
 	case FULL_MISSION_HOGSIZE:
@@ -664,7 +683,10 @@ static void add_missions_to_list(mission_list_type &mission_list, mission_candid
 	const std::size_t space_remaining = std::distance(rel_path, path.end());
 	*rel_path = '.';
 	*std::next(rel_path) = 0;
-	range_for (const auto i, PHYSFSX_uncounted_list{PHYSFS_enumerateFiles(path.data())})
+	const PHYSFSX_uncounted_list s{PHYSFS_enumerateFiles(path.data())};
+	if (!s)
+		return;
+	for (const auto i : s)
 	{
 		/* Add 1 to include the terminating null. */
 		const std::size_t il = strlen(i) + 1;
@@ -926,7 +948,7 @@ static const char *load_mission(const mle *const mission)
 #if defined(DXX_BUILD_DESCENT_I)
 			Error("descent.hog not available!\n%s", PHYSFS_getErrorByCode(r));
 #elif defined(DXX_BUILD_DESCENT_II)
-			Warning("descent.hog not available!\n%s\nThis mission may be missing some files required for briefings and exit sequence\n", PHYSFS_getErrorByCode(r));
+			Warning("descent.hog not available!\n%s\nThis mission may be missing some files required for briefings and exit sequence.", PHYSFS_getErrorByCode(r));
 #endif
 		if (!d_stricmp(Current_mission->path.c_str(), D1_MISSION_FILENAME))
 		{
@@ -1504,10 +1526,10 @@ static int write_mission(void)
 
 	PHYSFSX_printf(mfile, "type = %s\n", Current_mission->anarchy_only_flag == Mission::anarchy_only_level::only_anarchy_games ? "anarchy" : "normal");
 
-	if (Current_mission->briefing_text_filename[0])
+	if (Current_mission->briefing_text_filename.front())
 		PHYSFSX_printf(mfile, "briefing = %s\n", static_cast<const char *>(Current_mission->briefing_text_filename));
 
-	if (Current_mission->ending_text_filename[0])
+	if (Current_mission->ending_text_filename.front())
 		PHYSFSX_printf(mfile, "ending = %s\n", static_cast<const char *>(Current_mission->ending_text_filename));
 
 	PHYSFSX_printf(mfile, "num_levels = %i\n", Current_mission->last_level);

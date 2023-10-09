@@ -348,7 +348,7 @@ static int newdemo_write(const T *buffer, int elsize, int nelem )
  *  just a gamesave
 */
 
-static void nd_write_byte(sbyte b)
+static void nd_write_byte(const int8_t b)
 {
 	newdemo_write(&b, 1, 1);
 }
@@ -397,12 +397,10 @@ static void nd_write_angvec(const vms_angvec &v)
 static void nd_write_shortpos(const object_base &obj)
 {
 	shortpos sp;
-	ubyte render_type;
-
 	create_shortpos_native(LevelSharedSegmentState, sp, obj);
 
-	render_type = obj.render_type;
-	if ((render_type == RT_POLYOBJ || render_type == RT_HOSTAGE || render_type == RT_MORPH) || obj.type == OBJ_CAMERA)
+	const auto rtype = obj.render_type;
+	if ((rtype == render_type::RT_POLYOBJ || rtype == render_type::RT_HOSTAGE || rtype == render_type::RT_MORPH) || obj.type == OBJ_CAMERA)
 	{
 		uint8_t mask = 0;
 		range_for (auto &i, sp.bytemat)
@@ -533,12 +531,10 @@ static void nd_read_shortpos(object_base &obj)
 {
 	auto &LevelSharedVertexState = LevelSharedSegmentState.get_vertex_state();
 	auto &Vertices = LevelSharedVertexState.get_vertices();
-	ubyte render_type;
-
 	shortpos sp{};
 
-	render_type = obj.render_type;
-	if ((render_type == RT_POLYOBJ || render_type == RT_HOSTAGE || render_type == RT_MORPH) || obj.type == OBJ_CAMERA)
+	const auto rtype = obj.render_type;
+	if ((rtype == render_type::RT_POLYOBJ || rtype == render_type::RT_HOSTAGE || rtype == render_type::RT_MORPH) || obj.type == OBJ_CAMERA)
 	{
 		range_for (auto &i, sp.bytemat)
 			nd_read_byte(&i);
@@ -553,7 +549,7 @@ static void nd_read_shortpos(object_base &obj)
 	nd_read_short(&sp.velz);
 
 	my_extract_shortpos(obj, &sp);
-	if (obj.type == OBJ_FIREBALL && get_fireball_id(obj) == VCLIP_MORPHING_ROBOT && render_type == RT_FIREBALL && obj.control_source == object::control_type::explosion)
+	if (obj.type == OBJ_FIREBALL && get_fireball_id(obj) == vclip_index::morphing_robot && rtype == render_type::RT_FIREBALL && obj.control_source == object::control_type::explosion)
 	{
 		auto &vcvertptr = Vertices.vcptr;
 		extract_orient_from_segment(vcvertptr, obj.orient, vcsegptr(obj.segnum));
@@ -595,14 +591,14 @@ static void nd_read_object(const vmobjptridx_t obj)
 	 * blow by all other object information
 	 */
 	{
-		uint8_t render_type;
-		nd_read_byte(&render_type);
-		if (valid_render_type(render_type))
-			obj->render_type = render_type_t{render_type};
+		uint8_t rtype;
+		nd_read_byte(&rtype);
+		if (valid_render_type(rtype))
+			obj->render_type = render_type{rtype};
 		else
 		{
-			con_printf(CON_URGENT, "demo used bogus render type %#x for object %p; using none instead", render_type, &*obj);
-			obj->render_type = RT_NONE;
+			con_printf(CON_URGENT, "demo used bogus render type %#x for object %p; using none instead", rtype, &*obj);
+			obj->render_type = render_type::RT_NONE;
 		}
 	}
 	{
@@ -610,7 +606,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 		nd_read_byte(&object_type);
 		set_object_type(*obj, object_type);
 	}
-	if ((obj->render_type == RT_NONE) && (obj->type != OBJ_CAMERA))
+	if (obj->render_type == render_type::RT_NONE && obj->type != OBJ_CAMERA)
 		return;
 
 	nd_read_byte(&obj->id);
@@ -621,7 +617,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 	nd_read_shortpos(obj);
 
 #if defined(DXX_BUILD_DESCENT_II)
-	if ((obj->type == OBJ_ROBOT) && (get_robot_id(obj) == SPECIAL_REACTOR_ROBOT))
+	if (obj->type == OBJ_ROBOT && get_robot_id(obj) == robot_id::special_reactor)
 		Int3();
 #endif
 
@@ -641,7 +637,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 		// (MarkA and MikeK said we should not do the crazy last secret stuff with multiple reactors...
 		// This necessary code is our vindication. --MK, 2/15/96)
 #if defined(DXX_BUILD_DESCENT_II)
-		if (get_robot_id(obj) == SPECIAL_REACTOR_ROBOT)
+		if (get_robot_id(obj) == robot_id::special_reactor)
 			obj->movement_source = object::movement_type::None;
 		else
 #endif
@@ -701,7 +697,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 		vms_vector last_pos;
 		nd_read_vector(last_pos);
 	}
-	if ((obj->type == OBJ_WEAPON) && (obj->render_type == RT_WEAPON_VCLIP))
+	if (obj->type == OBJ_WEAPON && obj->render_type == render_type::RT_WEAPON_VCLIP)
 		nd_read_fix(&(obj->lifeleft));
 	else {
 		sbyte b;
@@ -716,7 +712,8 @@ static void nd_read_object(const vmobjptridx_t obj)
 	}
 
 	if ((obj->type == OBJ_ROBOT) && !shareware) {
-		if (Robot_info[get_robot_id(obj)].boss_flag) {
+		if (Robot_info[get_robot_id(obj)].boss_flag != boss_robot_id::None)
+		{
 			sbyte cloaked;
 
 			nd_read_byte(&cloaked);
@@ -792,11 +789,11 @@ static void nd_read_object(const vmobjptridx_t obj)
 
 	switch (obj->render_type) {
 
-	case RT_NONE:
+		case render_type::RT_NONE:
 		break;
 
-	case RT_MORPH:
-	case RT_POLYOBJ: {
+		case render_type::RT_MORPH:
+		case render_type::RT_POLYOBJ: {
 		int tmo;
 
 		if ((obj->type != OBJ_ROBOT) && (obj->type != OBJ_PLAYER) && (obj->type != OBJ_CLUTTER)) {
@@ -834,16 +831,20 @@ static void nd_read_object(const vmobjptridx_t obj)
 		break;
 	}
 
-	case RT_POWERUP:
-	case RT_WEAPON_VCLIP:
-	case RT_FIREBALL:
-	case RT_HOSTAGE:
-		nd_read_int(&(obj->rtype.vclip_info.vclip_num));
+		case render_type::RT_POWERUP:
+		case render_type::RT_WEAPON_VCLIP:
+		case render_type::RT_FIREBALL:
+		case render_type::RT_HOSTAGE:
+		{
+			int vclip_num;
+			nd_read_int(&vclip_num);
+			obj->rtype.vclip_info.vclip_num = static_cast<vclip_index>(vclip_num);
+		}
 		nd_read_fix(&(obj->rtype.vclip_info.frametime));
 		nd_read_byte(&obj->rtype.vclip_info.framenum);
 		break;
 
-	case RT_LASER:
+		case render_type::RT_LASER:
 		break;
 
 	default:
@@ -863,7 +864,7 @@ static void nd_write_object(const vcobjptridx_t objp)
 	short shortsig = 0;
 
 #if defined(DXX_BUILD_DESCENT_II)
-	if (obj.type == OBJ_ROBOT && get_robot_id(obj) == SPECIAL_REACTOR_ROBOT)
+	if (obj.type == OBJ_ROBOT && get_robot_id(obj) == robot_id::special_reactor)
 		Int3();
 #endif
 
@@ -871,9 +872,9 @@ static void nd_write_object(const vcobjptridx_t objp)
 	 * Do render_type first so on read, we can make determination of
 	 * what else to read in
 	 */
-	nd_write_byte(obj.render_type);
+	nd_write_byte(underlying_value(obj.render_type));
 	nd_write_byte(obj.type);
-	if (obj.render_type == RT_NONE && obj.type != OBJ_CAMERA)
+	if (obj.render_type == render_type::RT_NONE && obj.type != OBJ_CAMERA)
 		return;
 
 	nd_write_byte(obj.id);
@@ -893,7 +894,7 @@ static void nd_write_object(const vcobjptridx_t objp)
 
 	nd_write_vector(obj.pos);
 
-	if (obj.type == OBJ_WEAPON && obj.render_type == RT_WEAPON_VCLIP)
+	if (obj.type == OBJ_WEAPON && obj.render_type == render_type::RT_WEAPON_VCLIP)
 		nd_write_fix(obj.lifeleft);
 	else {
 		life = static_cast<int>(obj.lifeleft);
@@ -904,7 +905,8 @@ static void nd_write_object(const vcobjptridx_t objp)
 	}
 
 	if (obj.type == OBJ_ROBOT) {
-		if (Robot_info[get_robot_id(obj)].boss_flag) {
+		if (Robot_info[get_robot_id(obj)].boss_flag != boss_robot_id::None)
+		{
 			const auto Boss_cloak_start_time = BossUniqueState.Boss_cloak_start_time;
 			if (GameTime64 > Boss_cloak_start_time &&
 				GameTime64 < (Boss_cloak_start_time + Boss_cloak_duration))
@@ -971,11 +973,11 @@ static void nd_write_object(const vcobjptridx_t objp)
 	auto &Polygon_models = LevelSharedPolygonModelState.Polygon_models;
 	switch (obj.render_type) {
 
-	case RT_NONE:
+		case render_type::RT_NONE:
 		break;
 
-	case RT_MORPH:
-	case RT_POLYOBJ: {
+		case render_type::RT_MORPH:
+		case render_type::RT_POLYOBJ: {
 		if ((obj.type != OBJ_ROBOT) && (obj.type != OBJ_PLAYER) && (obj.type != OBJ_CLUTTER)) {
 			nd_write_int(underlying_value(obj.rtype.pobj_info.model_num));
 			nd_write_int(obj.rtype.pobj_info.subobj_flags);
@@ -990,16 +992,16 @@ static void nd_write_object(const vcobjptridx_t objp)
 		break;
 	}
 
-	case RT_POWERUP:
-	case RT_WEAPON_VCLIP:
-	case RT_FIREBALL:
-	case RT_HOSTAGE:
-		nd_write_int(obj.rtype.vclip_info.vclip_num);
+		case render_type::RT_POWERUP:
+		case render_type::RT_WEAPON_VCLIP:
+		case render_type::RT_FIREBALL:
+		case render_type::RT_HOSTAGE:
+		nd_write_int(underlying_value(obj.rtype.vclip_info.vclip_num));
 		nd_write_fix(obj.rtype.vclip_info.frametime);
 		nd_write_byte(obj.rtype.vclip_info.framenum);
 		break;
 
-	case RT_LASER:
+		case render_type::RT_LASER:
 		break;
 
 	default:
@@ -1089,8 +1091,8 @@ void newdemo_record_start_demo()
 
 	if (Game_mode & GM_TEAM) {
 		nd_write_byte(Netgame.team_vector);
-		nd_write_string(Netgame.team_name[0]);
-		nd_write_string(Netgame.team_name[1]);
+		nd_write_string(Netgame.team_name[team_number::blue]);
+		nd_write_string(Netgame.team_name[team_number::red]);
 	}
 
 	if (Game_mode & GM_MULTI) {
@@ -1706,15 +1708,16 @@ static void newdemo_record_oneframeevent_update(int wallupdate)
 }
 }
 
-enum purpose_type
+enum class purpose_type : uint8_t
 {
-	PURPOSE_CHOSE_PLAY = 0,
-	PURPOSE_RANDOM_PLAY,
-	PURPOSE_REWRITE
+	chose_play = 0,
+	random_play,
+	rewrite
 };
 
 namespace dsx {
-static int newdemo_read_demo_start(enum purpose_type purpose)
+
+static int newdemo_read_demo_start(const purpose_type purpose)
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
@@ -1731,27 +1734,28 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 #endif
 
 	nd_read_byte(&c);
-	if (purpose == PURPOSE_REWRITE)
+	if (purpose == purpose_type::rewrite)
 		nd_write_byte(c);
 	if ((c != ND_EVENT_START_DEMO) || nd_playback_v_bad_read) {
 		nm_messagebox(menu_title{nullptr}, {TXT_OK}, "%s %s", TXT_CANT_PLAYBACK, TXT_DEMO_CORRUPT);
 		return 1;
 	}
 	nd_read_byte(&version);
-	if (purpose == PURPOSE_REWRITE)
+	if (purpose == purpose_type::rewrite)
 		nd_write_byte(version);
 #if defined(DXX_BUILD_DESCENT_I)
 	if (version == DEMO_VERSION_SHAREWARE)
 		shareware = 1;
 	else if (version < DEMO_VERSION) {
-		if (purpose == PURPOSE_CHOSE_PLAY) {
+		if (purpose == purpose_type::chose_play)
+		{
 			nm_messagebox(menu_title{nullptr}, {TXT_OK}, "%s %s", TXT_CANT_PLAYBACK, TXT_DEMO_OLD);
 		}
 		return 1;
 	}
 #endif
 	nd_read_byte(&game_type);
-	if (purpose == PURPOSE_REWRITE)
+	if (purpose == purpose_type::rewrite)
 		nd_write_byte(game_type);
 #if defined(DXX_BUILD_DESCENT_I)
 	if ((game_type == DEMO_GAME_TYPE_SHAREWARE) && shareware)
@@ -1771,7 +1775,8 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 		return 1;
 	}
 	if (version < DEMO_VERSION) {
-		if (purpose == PURPOSE_CHOSE_PLAY) {
+		if (purpose == purpose_type::chose_play)
+		{
 			nm_messagebox(menu_title{nullptr}, {TXT_OK}, "%s %s", TXT_CANT_PLAYBACK, TXT_DEMO_OLD);
 		}
 		return 1;
@@ -1783,7 +1788,7 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 	nd_read_int(&recorded_demo_game_mode);
 	Newdemo_game_mode = static_cast<game_mode_flags>(recorded_demo_game_mode);
 #if defined(DXX_BUILD_DESCENT_II)
-	if (purpose == PURPOSE_REWRITE)
+	if (purpose == purpose_type::rewrite)
 	{
 		nd_write_fix(nd_GameTime32);
 		nd_write_int(underlying_value(Newdemo_game_mode));
@@ -1798,7 +1803,7 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 		if (Newdemo_game_mode & GM_TEAM)
 		{
 			nd_read_byte(&Netgame.team_vector);
-			if (purpose == PURPOSE_REWRITE)
+			if (purpose == purpose_type::rewrite)
 				nd_write_byte(Netgame.team_vector);
 		}
 
@@ -1815,25 +1820,25 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 	{
 		if (Newdemo_game_mode & GM_TEAM) {
 			nd_read_byte(&Netgame.team_vector);
-			nd_read_string(Netgame.team_name[0].buffer());
-			nd_read_string(Netgame.team_name[1].buffer());
-			if (purpose == PURPOSE_REWRITE)
+			nd_read_string(Netgame.team_name[team_number::blue].buffer());
+			nd_read_string(Netgame.team_name[team_number::red].buffer());
+			if (purpose == purpose_type::rewrite)
 			{
 				nd_write_byte(Netgame.team_vector);
-				nd_write_string(Netgame.team_name[0]);
-				nd_write_string(Netgame.team_name[1]);
+				nd_write_string(Netgame.team_name[team_number::blue]);
+				nd_write_string(Netgame.team_name[team_number::red]);
 			}
 		}
 		if (Newdemo_game_mode & GM_MULTI) {
 
-			if (purpose != PURPOSE_REWRITE)
+			if (purpose != purpose_type::rewrite)
 				multi_new_game();
 			nd_read_byte(&c);
 			N_players = static_cast<int>(c);
 			// changed this to above two lines -- breaks on the mac because of
 			// endian issues
 			//		nd_read_byte(&N_players);
-			if (purpose == PURPOSE_REWRITE)
+			if (purpose == purpose_type::rewrite)
 				nd_write_byte(N_players);
 			range_for (auto &i, partial_range(Players, N_players)) {
 				const auto &&objp = vmobjptr(i.objnum);
@@ -1847,7 +1852,7 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 					nd_read_byte(&connected);
 					i.connected = player_connection_status{connected};
 				}
-				if (purpose == PURPOSE_REWRITE)
+				if (purpose == purpose_type::rewrite)
 				{
 					nd_write_string(static_cast<const char *>(i.callsign));
 					nd_write_byte(underlying_value(i.connected));
@@ -1855,12 +1860,12 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 
 				if (Newdemo_game_mode & GM_MULTI_COOP) {
 					nd_read_int(&player_info.mission.score);
-					if (purpose == PURPOSE_REWRITE)
+					if (purpose == purpose_type::rewrite)
 						nd_write_int(player_info.mission.score);
 				} else {
 					nd_read_short(&player_info.net_killed_total);
 					nd_read_short(&player_info.net_kills_total);
-					if (purpose == PURPOSE_REWRITE)
+					if (purpose == purpose_type::rewrite)
 					{
 						nd_write_short(player_info.net_killed_total);
 						nd_write_short(player_info.net_kills_total);
@@ -1868,7 +1873,7 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 				}
 			}
 			Game_mode = Newdemo_game_mode;
-			if (purpose != PURPOSE_REWRITE)
+			if (purpose != purpose_type::rewrite)
 				multi_sort_kill_list();
 			Game_mode = GM_NORMAL;
 		} else
@@ -1876,7 +1881,7 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 #if defined(DXX_BUILD_DESCENT_II)
 			auto &player_info = get_local_plrobj().ctype.player_info;
 			nd_read_int(&player_info.mission.score);      // Note link to above if!
-			if (purpose == PURPOSE_REWRITE)
+			if (purpose == purpose_type::rewrite)
 				nd_write_int(player_info.mission.score);
 #endif
 		}
@@ -1887,7 +1892,7 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 	{
 		auto &score = player_info.mission.score;
 		nd_read_int(&score);      // Note link to above if!
-		if (purpose == PURPOSE_REWRITE)
+		if (purpose == purpose_type::rewrite)
 			nd_write_int(score);
 	}
 #endif
@@ -1898,7 +1903,7 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 		nd_read_short(&s);
 		if (i == primary_weapon_index_t::VULCAN_INDEX)
 			player_info.vulcan_ammo = s;
-		if (purpose == PURPOSE_REWRITE)
+		if (purpose == purpose_type::rewrite)
 			nd_write_short(s);
 	}
 
@@ -1907,30 +1912,32 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 		uint16_t u;
 		nd_read_short(&u);
 		i = u;
-		if (purpose == PURPOSE_REWRITE)
+		if (purpose == purpose_type::rewrite)
 			nd_write_short(i);
 	}
 
 	uint8_t i;
 	nd_read_byte(&i);
 	const enum laser_level laser_level{i};
-	if ((purpose != PURPOSE_REWRITE) && (laser_level != player_info.laser_level)) {
+	if (purpose != purpose_type::rewrite && laser_level != player_info.laser_level)
+	{
 		player_info.laser_level = laser_level;
 	}
-	else if (purpose == PURPOSE_REWRITE)
+	else if (purpose == purpose_type::rewrite)
 		nd_write_byte(static_cast<uint8_t>(laser_level));
 
 	// Support for missions
 
 	nd_read_string(current_mission);
-	if (purpose == PURPOSE_REWRITE)
+	if (purpose == purpose_type::rewrite)
 		nd_write_string(current_mission);
 #if defined(DXX_BUILD_DESCENT_I)
 	if (!shareware)
 	{
-		if ((purpose != PURPOSE_REWRITE) && load_mission_by_name(mission_entry_predicate{current_mission}, mission_name_type::guess))
+		if (purpose != purpose_type::rewrite && load_mission_by_name(mission_entry_predicate{current_mission}, mission_name_type::guess))
 		{
-			if (purpose == PURPOSE_CHOSE_PLAY) {
+			if (purpose == purpose_type::chose_play)
+			{
 				nm_messagebox(menu_title{nullptr}, {TXT_OK}, TXT_NOMISSION4DEMO, current_mission);
 			}
 			return 1;
@@ -1943,7 +1950,8 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 		mission_predicate.check_version = false;
 		if (load_mission_by_name(mission_predicate, mission_name_type::guess))
 		{
-		if (purpose != PURPOSE_RANDOM_PLAY) {
+		if (purpose != purpose_type::random_play)
+		{
 			nm_messagebox(menu_title{nullptr}, {TXT_OK}, TXT_NOMISSION4DEMO, current_mission);
 		}
 		return 1;
@@ -1955,7 +1963,7 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 	nd_playback_total = 0;
 	nd_read_byte(&energy);
 	nd_read_byte(&shield);
-	if (purpose == PURPOSE_REWRITE)
+	if (purpose == purpose_type::rewrite)
 	{
 		nd_write_byte(energy);
 		nd_write_byte(shield);
@@ -1964,7 +1972,7 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 	int recorded_player_flags;
 	nd_read_int(&recorded_player_flags);
 	player_info.powerup_flags = player_flags(recorded_player_flags);
-	if (purpose == PURPOSE_REWRITE)
+	if (purpose == purpose_type::rewrite)
 		nd_write_int(recorded_player_flags);
 	if (player_info.powerup_flags & PLAYER_FLAGS_CLOAKED) {
 		player_info.cloak_time = GameTime64 - (CLOAK_TIME_MAX / 2);
@@ -1984,7 +1992,7 @@ static int newdemo_read_demo_start(enum purpose_type purpose)
 		nd_read_byte(&v);
 		Secondary_weapon = static_cast<secondary_weapon_index_t>(v);
 	}
-	if (purpose == PURPOSE_REWRITE)
+	if (purpose == purpose_type::rewrite)
 	{
 		nd_write_byte(Primary_weapon);
 		nd_write_byte(Secondary_weapon);
@@ -2201,7 +2209,7 @@ static int newdemo_read_frame_information(int rewrite)
 					int player;
 
 					if (Newdemo_game_mode & GM_TEAM)
-						player = get_team(get_player_id(obj));
+						player = static_cast<unsigned>(get_team(get_player_id(obj)));
 					else
 						player = get_player_id(obj);
 					if (player == 0)
@@ -2448,7 +2456,7 @@ static int newdemo_read_frame_information(int rewrite)
 				nd_write_object(obj);
 				break;
 			}
-			obj->render_type = RT_POLYOBJ;
+			obj->render_type = render_type::RT_POLYOBJ;
 			if (Newdemo_vcr_state != ND_STATE_PAUSED) {
 				if (Newdemo_vcr_state != ND_STATE_PAUSED) {
 					auto segnum = obj->segnum;
@@ -3416,7 +3424,7 @@ window_event_result newdemo_goto_beginning()
 	//	return;
 	PHYSFS_seek(infile, 0);
 	Newdemo_vcr_state = ND_STATE_PLAYBACK;
-	if (newdemo_read_demo_start(PURPOSE_CHOSE_PLAY))
+	if (newdemo_read_demo_start(purpose_type::chose_play))
 		newdemo_stop_playback();
 	if (newdemo_read_frame_information(0) == -1)
 		newdemo_stop_playback();
@@ -3663,14 +3671,15 @@ static window_event_result interpolate_frame(fix d_play, fix d_recorded)
 			range_for (const auto &&objp, vmobjptr)
 			{
 				if (i.signature == objp->signature) {
-					sbyte render_type = i.render_type;
+					const auto rtype = i.render_type;
 					fix delta_x, delta_y, delta_z;
 
 					//  Extract the angles from the object orientation matrix.
 					//  Some of this code taken from ai_turn_towards_vector
 					//  Don't do the interpolation on certain render types which don't use an orientation matrix
 
-					if (!((render_type == RT_LASER) || (render_type == RT_FIREBALL) || (render_type == RT_POWERUP))) {
+					if (!(rtype == render_type::RT_LASER || rtype == render_type::RT_FIREBALL || rtype == render_type::RT_POWERUP))
+					{
 						vms_vector  fvec1, fvec2, rvec1, rvec2;
 
 						fvec1 = i.orient.fvec;
@@ -4214,7 +4223,7 @@ namespace dsx {
 void newdemo_start_playback(const char * filename)
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
-	enum purpose_type rnd_demo = PURPOSE_CHOSE_PLAY;
+	auto rnd_demo{purpose_type::chose_play};
 	char filename2[PATH_MAX+FILENAME_LEN] = DEMO_DIR;
 
 	change_playernum_to(0);
@@ -4226,7 +4235,7 @@ void newdemo_start_playback(const char * filename)
 		// Randomly pick a filename
 		int NumFiles = 0, RandFileNum;
 
-		rnd_demo = PURPOSE_RANDOM_PLAY;
+		rnd_demo = purpose_type::random_play;
 		NumFiles = newdemo_count_demos();
 
 		if ( NumFiles == 0 ) {
@@ -4348,7 +4357,8 @@ int newdemo_swap_endian(const char *filename)
 	nd_playback_v_at_eof = 0;
 	Newdemo_state = ND_STATE_NORMAL;	// not doing anything special really
 
-	if (newdemo_read_demo_start(PURPOSE_REWRITE)) {
+	if (newdemo_read_demo_start(purpose_type::rewrite))
+	{
 		infile.reset();
 		outfile.reset();
 		swap_endian = 0;

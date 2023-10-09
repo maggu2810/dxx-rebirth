@@ -53,7 +53,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "sounds.h"
 #include "piggy.h"
 #include "aistruct.h"
-#include "robot.h"
+#include "ai.h"
 #include "weapon.h"
 #include "gauges.h"
 #include "player.h"
@@ -169,7 +169,7 @@ static int 			rod_flag = 0;
 static short		wall_open_sound, wall_close_sound;
 static float		vlighting=0;
 static int			obj_eclip;
-static int			dest_vclip;		//what vclip to play when exploding
+static vclip_index	dest_vclip;		//what vclip to play when exploding
 static int			dest_eclip;		//what eclip to play when exploding
 static fix			dest_size;		//3d size of explosion
 static int			crit_clip;		//clip number to play when destroyed
@@ -304,9 +304,6 @@ static bitmap_index bm_load_sub(const int skip, const char *const filename)
 
 static void ab_load(int skip, const char * filename, std::array<bitmap_index, MAX_BITMAPS_PER_BRUSH> &bmp, unsigned *nframes )
 {
-	int iff_error;		//reference parm to avoid warning message
-	palette_array_t newpal;
-
 	if (skip) {
 		Assert( bogus_bitmap_initialized != 0 );
 #if defined(DXX_BUILD_DESCENT_I)
@@ -346,11 +343,11 @@ static void ab_load(int skip, const char * filename, std::array<bitmap_index, MA
 	}
 	}
 
-//	Note that last argument passes an address to the array newpal (which is a pointer).
-//	type mismatch found using lint, will substitute this line with an adjusted
-//	one.  If fatal error, then it can be easily changed.
-	std::array<std::unique_ptr<grs_main_bitmap>, MAX_BITMAPS_PER_BRUSH> bm;
-	iff_error = iff_read_animbrush(filename,bm,nframes,newpal);
+	auto read_result = iff_read_animbrush(filename);
+	auto &bm = read_result.bm;
+	auto &newpal = read_result.palette;
+	*nframes = read_result.n_bitmaps;
+	const auto iff_error = read_result.status;
 	if (iff_error != IFF_NO_ERROR)	{
 		Error("File <%s> - IFF error: %s, line %d",filename,iff_errormsg(iff_error),linenum);
 	}
@@ -665,7 +662,7 @@ int gamedata_read_tbl(d_level_shared_robot_info_state &LevelSharedRobotInfoState
 #elif defined(DXX_BUILD_DESCENT_II)
 				dest_bm=NULL;
 #endif
-				dest_vclip=vclip_none;
+				dest_vclip = vclip_index::None;
 				dest_eclip=eclip_none;
 				dest_size=-1;
 				crit_clip=-1;
@@ -730,7 +727,7 @@ int gamedata_read_tbl(d_level_shared_robot_info_state &LevelSharedRobotInfoState
 #elif defined(DXX_BUILD_DESCENT_II)
 			else IFTOK("dest_bm")			dest_bm = strtok( NULL, space_tab );
 #endif
-			else IFTOK("dest_vclip")		dest_vclip = get_int();
+			else IFTOK("dest_vclip")		dest_vclip = build_vclip_index_from_untrusted(get_int());
 			else IFTOK("dest_eclip")		dest_eclip = get_int();
 			else IFTOK("dest_size")			dest_size = fl2f(get_float());
 			else IFTOK("crit_clip")			crit_clip = get_int();
@@ -1044,8 +1041,8 @@ static std::size_t bm_read_eclip(std::size_t texture_count, int skip)
 		Effects[clip_num].dest_bm_num = dest_bm_num;
 #endif
 
-		if (dest_vclip==vclip_none)
-			Error("Desctuction vclip missing on line %d",linenum);
+		if (dest_vclip == vclip_index::None)
+			Error("Destruction vclip missing on line %d", linenum);
 		if (dest_size==-1)
 			Error("Desctuction vclip missing on line %d",linenum);
 
@@ -1184,51 +1181,57 @@ static void bm_read_vclip(d_vclip_array &Vclip, const char *const arg, int skip)
 static void bm_read_vclip(d_vclip_array &Vclip, int skip)
 #endif
 {
-	assert(clip_num < Vclip.size());
+	const std::size_t c = clip_num;
+	assert(Vclip.valid_index(c));
+	if (!Vclip.valid_index(c))
+		return;
+	const vclip_index vci{static_cast<uint8_t>(c)};
+	auto &vc = Vclip[vci];
 
 #if defined(DXX_BUILD_DESCENT_II)
-	if (clip_num >= Num_vclips)
-		Num_vclips = clip_num+1;
+	if (Num_vclips <= c)
+		Num_vclips = c + 1;
 #endif
 
 	if (!abm_flag)	{
-		if (Vclip[clip_num].num_frames != ~0u && clip_count == 0)
+		if (vc.num_frames != ~0u && clip_count == 0)
 			Error( "Vclip %d is already used!", clip_num );
 		const auto bi = bm_load_sub(skip, arg);
-		Vclip[clip_num].play_time = fl2f(play_time);
-		Vclip[clip_num].num_frames = frames;
-		Vclip[clip_num].frame_time = fl2f(play_time)/frames;
-		Vclip[clip_num].light_value = fl2f(vlighting);
-		Vclip[clip_num].sound_num = sound_num;
+		vc.play_time = fl2f(play_time);
+		vc.num_frames = frames;
+		vc.frame_time = fl2f(play_time) / frames;
+		vc.light_value = fl2f(vlighting);
+		vc.sound_num = sound_num;
 		set_lighting_flag(GameBitmaps[bi]);
 		Assert(clip_count < frames);
-		Vclip[clip_num].frames[clip_count++] = bi;
+		vc.frames[clip_count++] = bi;
 		if (rod_flag) {
 			rod_flag=0;
-			Vclip[clip_num].flags |= VF_ROD;
+			vc.flags |= VF_ROD;
 		}
 
 	} else	{
 		std::array<bitmap_index, MAX_BITMAPS_PER_BRUSH> bm;
 		abm_flag = 0;
-		if (Vclip[clip_num].num_frames != ~0u)
+		if (vc.num_frames != ~0u)
 			Error( "AB_Vclip %d is already used!", clip_num );
-		ab_load(skip, arg, bm, &Vclip[clip_num].num_frames );
+		ab_load(skip, arg, bm, &vc.num_frames);
 
 		if (rod_flag) {
 			//int i;
 			rod_flag=0;
-			Vclip[clip_num].flags |= VF_ROD;
+			vc.flags |= VF_ROD;
 		}
-		Vclip[clip_num].play_time = fl2f(play_time);
-		Vclip[clip_num].frame_time = fl2f(play_time)/Vclip[clip_num].num_frames;
-		Vclip[clip_num].light_value = fl2f(vlighting);
-		Vclip[clip_num].sound_num = sound_num;
+		vc.play_time = fl2f(play_time);
+		vc.frame_time = fl2f(play_time) / vc.num_frames;
+		vc.light_value = fl2f(vlighting);
+		vc.sound_num = sound_num;
 		set_lighting_flag(GameBitmaps[bm[clip_count]]);
 
-		for (clip_count=0;clip_count < Vclip[clip_num].num_frames; clip_count++) {
+		for (clip_count = 0; clip_count < vc.num_frames; ++clip_count)
+		{
 			set_lighting_flag(GameBitmaps[bm[clip_count]]);
-			Vclip[clip_num].frames[clip_count] = bm[clip_count];
+			vc.frames[clip_count] = bm[clip_count];
 		}
 	}
 }
@@ -1357,14 +1360,16 @@ void bm_read_robot_ai(d_robot_info_array &Robot_info, const int skip)
 #endif
 {
 	char			*robotnum_text;
-	int			robotnum;
 
 	robotnum_text = strtok(NULL, space_tab);
-	robotnum = atoi(robotnum_text);
-	Assert(robotnum < MAX_ROBOT_TYPES);
+	const auto l = strtoul(robotnum_text, nullptr, 10);
+	const auto o = Robot_info.valid_index(l);
+	if (!o)
+		return;
+	const auto robotnum = *o;
 	auto &robptr = Robot_info[robotnum];
 
-	Assert(robotnum == Num_robot_ais);		//make sure valid number
+	assert(l == Num_robot_ais);		//make sure valid number
 
 	if (skip) {
 		Num_robot_ais++;
@@ -1461,9 +1466,9 @@ void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, i
 	int			n_models,i;
 	int			first_bitmap_num[MAX_MODEL_VARIANTS];
 	char			*equal_ptr;
-	int exp1_vclip_num = vclip_none;
+	auto exp1_vclip_num{vclip_index::None};
 	int exp1_sound_num = sound_none;
-	int exp2_vclip_num = vclip_none;
+	auto exp2_vclip_num{vclip_index::None};
 	int exp2_sound_num = sound_none;
 	fix			lighting = F1_0/2;		// Default
 	fix			strength = F1_0*10;		// Default strength
@@ -1483,7 +1488,7 @@ void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, i
 	int			score_value=1000;
 	int			cloak_type=0;		//	Default = this robot does not cloak
 	int			attack_type=0;		//	Default = this robot attacks by firing (1=lunge)
-	int			boss_flag=0;				//	Default = robot is not a boss.
+	boss_robot_id	boss_flag{};				//	Default = robot is not a boss.
 	int			see_sound = ROBOT_SEE_SOUND_DEFAULT;
 	int			attack_sound = ROBOT_ATTACK_SOUND_DEFAULT;
 	int			claw_sound = ROBOT_CLAW_SOUND_DEFAULT;
@@ -1492,8 +1497,14 @@ void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, i
 
 	auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
 	if (skip) {
-		auto &ri = Robot_info[LevelSharedRobotInfoState.N_robot_types++];
-		ri.model_num = polygon_model_index::None;
+		const auto N_robot_types = LevelSharedRobotInfoState.N_robot_types;
+		if (const auto o = Robot_info.valid_index(N_robot_types))
+		{
+			const auto rid = *o;
+			++ LevelSharedRobotInfoState.N_robot_types;
+			auto &ri = Robot_info[rid];
+			ri.model_num = polygon_model_index::None;
+		}
 #if defined(DXX_BUILD_DESCENT_I)
 		Num_total_object_types++;
 		clear_to_end_of_line(arg);
@@ -1517,9 +1528,9 @@ void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, i
 			equal_ptr++;
 			// if we have john=cool, arg is 'john' and equal_ptr is 'cool'
 			if (!d_stricmp( arg, "exp1_vclip" ))	{
-				exp1_vclip_num = atoi(equal_ptr);
+				exp1_vclip_num = build_vclip_index_from_untrusted(atoi(equal_ptr));
 			} else if (!d_stricmp( arg, "exp2_vclip" ))	{
-				exp2_vclip_num = atoi(equal_ptr);
+				exp2_vclip_num = build_vclip_index_from_untrusted(atoi(equal_ptr));
 			} else if (!d_stricmp( arg, "exp1_sound" ))	{
 				exp1_sound_num = atoi(equal_ptr);
 			} else if (!d_stricmp( arg, "exp2_sound" ))	{
@@ -1585,7 +1596,8 @@ void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, i
 			} else if (!d_stricmp( arg, "attack_type" )) {
 				attack_type = atoi(equal_ptr);
 			} else if (!d_stricmp( arg, "boss" )) {
-				boss_flag = atoi(equal_ptr);
+				const auto i = strtoul(equal_ptr, nullptr, 10);
+				boss_flag = (i == static_cast<uint8_t>(boss_robot_id::d1_1) || i == static_cast<uint8_t>(boss_robot_id::d1_superboss)) ? static_cast<boss_robot_id>(i) : boss_robot_id::None;
 			} else if (!d_stricmp( arg, "score_value" )) {
 				score_value = atoi(equal_ptr);
 			} else if (!d_stricmp( arg, "see_sound" )) {
@@ -1624,7 +1636,7 @@ void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, i
 #endif
 			else if (!d_stricmp( arg, "name" )) {
 #if DXX_USE_EDITOR
-				auto &name = Robot_names[LevelSharedRobotInfoState.N_robot_types];
+				auto &name = Robot_names[static_cast<robot_id>(LevelSharedRobotInfoState.N_robot_types)];
 				const auto len = strlen(equal_ptr);
 				assert(len < name.size());	//	Oops, name too long.
 				memcpy(name.data(), &equal_ptr[1], len - 2);
@@ -1650,7 +1662,7 @@ void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, i
 		arg = strtok( NULL, space_tab );
 	}
 
-	auto &current_robot_info = Robot_info[LevelSharedRobotInfoState.N_robot_types];
+	auto &current_robot_info = Robot_info[static_cast<robot_id>(LevelSharedRobotInfoState.N_robot_types)];
 	//clear out anim info
 	range_for (auto &g, current_robot_info.anim_states)
 		range_for (auto &s, g)
@@ -1726,9 +1738,9 @@ void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, i
 #endif
 
 	if (contains_type)
-		current_robot_info.contains_type = OBJ_ROBOT;
+		current_robot_info.contains.type = contained_object_type::robot;
 	else
-		current_robot_info.contains_type = OBJ_POWERUP;
+		current_robot_info.contains.type = contained_object_type::powerup;
 
 	++LevelSharedRobotInfoState.N_robot_types;
 #if defined(DXX_BUILD_DESCENT_I)
@@ -1962,7 +1974,7 @@ void bm_read_player_ship(void)
 	arg = strtok( NULL, space_tab );
 
 	Player_ship->mass = Player_ship->drag = 0;	//stupid defaults
-	Player_ship->expl_vclip_num = vclip_none;
+	Player_ship->expl_vclip_num = vclip_index::None;
 
 	while (arg!=NULL)	{
 
@@ -2010,7 +2022,7 @@ void bm_read_player_ship(void)
 			else if (!d_stricmp( arg, "dying_pof" ))
 				model_name_dying = equal_ptr;
 			else if (!d_stricmp( arg, "expl_vclip_num" ))
-				Player_ship->expl_vclip_num=atoi(equal_ptr);
+				Player_ship->expl_vclip_num = build_vclip_index_from_untrusted(atoi(equal_ptr));
 #if defined(DXX_BUILD_DESCENT_II)
 			else {
 				Int3();
@@ -2223,12 +2235,12 @@ void bm_read_weapon(int skip, int unused_flag)
 	Weapon_info[n].model_num = polygon_model_index::None;
 	Weapon_info[n].model_num_inner = polygon_model_index::None;
 	Weapon_info[n].blob_size = 0x1000;									// size of blob
-	Weapon_info[n].flash_vclip = vclip_none;
+	Weapon_info[n].flash_vclip = vclip_index::None;
 	Weapon_info[n].flash_sound = SOUND_LASER_FIRED;
 	Weapon_info[n].flash_size = 0;
-	Weapon_info[n].robot_hit_vclip = vclip_none;
+	Weapon_info[n].robot_hit_vclip = vclip_index::None;
 	Weapon_info[n].robot_hit_sound = sound_none;
-	Weapon_info[n].wall_hit_vclip = vclip_none;
+	Weapon_info[n].wall_hit_vclip = vclip_index::None;
 	Weapon_info[n].wall_hit_sound = sound_none;
 	Weapon_info[n].impact_size = 0;
 	for (auto &i : Weapon_info[n].strength)
@@ -2302,7 +2314,7 @@ void bm_read_weapon(int skip, int unused_flag)
 				// Set vclip to play for this weapon.
 				Weapon_info[n].bitmap = {};
 				Weapon_info[n].render = WEAPON_RENDER_VCLIP;
-				Weapon_info[n].weapon_vclip = atoi(equal_ptr);
+				Weapon_info[n].weapon_vclip = build_vclip_index_from_untrusted(atoi(equal_ptr));
 
 			} else if (!d_stricmp( arg, "none_bmp" )) {
 				Weapon_info[n].bitmap = bm_load_sub(skip, equal_ptr);
@@ -2359,7 +2371,7 @@ void bm_read_weapon(int skip, int unused_flag)
 			}
 #endif
 			else if (!d_stricmp( arg, "flash_vclip" ))	{
-				Weapon_info[n].flash_vclip = atoi(equal_ptr);
+				Weapon_info[n].flash_vclip = build_vclip_index_from_untrusted(atoi(equal_ptr));
 			} else if (!d_stricmp( arg, "flash_sound" ))	{
 				Weapon_info[n].flash_sound = atoi(equal_ptr);
 			} else if (!d_stricmp( arg, "flash_size" ))	{
@@ -2367,11 +2379,11 @@ void bm_read_weapon(int skip, int unused_flag)
 			} else if (!d_stricmp( arg, "blob_size" ))	{
 				Weapon_info[n].blob_size = fl2f(atof(equal_ptr));
 			} else if (!d_stricmp( arg, "robot_hit_vclip" ))	{
-				Weapon_info[n].robot_hit_vclip = atoi(equal_ptr);
+				Weapon_info[n].robot_hit_vclip = build_vclip_index_from_untrusted(atoi(equal_ptr));
 			} else if (!d_stricmp( arg, "robot_hit_sound" ))	{
 				Weapon_info[n].robot_hit_sound = atoi(equal_ptr);
 			} else if (!d_stricmp( arg, "wall_hit_vclip" ))	{
-				Weapon_info[n].wall_hit_vclip = atoi(equal_ptr);
+				Weapon_info[n].wall_hit_vclip = build_vclip_index_from_untrusted(atoi(equal_ptr));
 			} else if (!d_stricmp( arg, "wall_hit_sound" ))	{
 				Weapon_info[n].wall_hit_sound = atoi(equal_ptr);
 			} else if (!d_stricmp( arg, "impact_size" ))	{
@@ -2495,7 +2507,7 @@ void bm_read_powerup(int unused_flag)
 
 	// Initialize powerup array
 	Powerup_info[n].light = F1_0/3;		//	Default lighting value.
-	Powerup_info[n].vclip_num = vclip_none;
+	Powerup_info[n].vclip_num = vclip_index::None;
 	Powerup_info[n].hit_sound = sound_none;
 	Powerup_info[n].size = DEFAULT_POWERUP_SIZE;
 #if DXX_USE_EDITOR
@@ -2512,7 +2524,7 @@ void bm_read_powerup(int unused_flag)
 			equal_ptr++;
 			// if we have john=cool, arg is 'john' and equal_ptr is 'cool'
 			if (!d_stricmp( arg, "vclip_num" ))	{
-				Powerup_info[n].vclip_num = atoi(equal_ptr);
+				Powerup_info[n].vclip_num = build_vclip_index_from_untrusted(atoi(equal_ptr));
 			} else if (!d_stricmp( arg, "light" ))	{
 				Powerup_info[n].light = fl2f(atof(equal_ptr));
 			} else if (!d_stricmp( arg, "hit_sound" ))	{
@@ -2572,7 +2584,7 @@ void bm_read_hostage()
 
 			if (!d_stricmp( arg, "vclip_num" ))
 
-				Hostage_vclip_num[n] = atoi(equal_ptr);
+				Hostage_vclip_num[n] = build_vclip_index_from_untrusted(atoi(equal_ptr));
 
 #if defined(DXX_BUILD_DESCENT_II)
 			else {

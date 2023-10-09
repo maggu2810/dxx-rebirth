@@ -1181,7 +1181,7 @@ screen_resolution_menu_items::screen_resolution_menu_items()
 		/* At most one entry can be checked.  When the correct entry is
 		 * found, update citem so that no later entries can be checked.
 		 */
-		const auto checked = (citem == -1 && Game_screen_mode == mode && GameCfg.AspectY == sm_w / gcd(sm_w, sm_h) && GameCfg.AspectX == sm_h / gcd(sm_w, sm_h));
+		const auto checked = (citem == -1 && Game_screen_mode == mode && CGameCfg.AspectY == sm_w / gcd(sm_w, sm_h) && CGameCfg.AspectX == sm_h / gcd(sm_w, sm_h));
 		if (checked)
 			citem = idx;
 		nm_set_item_radio(menuitem, resolution_text.data(), checked, grp_resolution);
@@ -1194,7 +1194,7 @@ screen_resolution_menu_items::screen_resolution_menu_items()
 	snprintf(crestext.data(), crestext.size(), "%ix%i", SM_W(Game_screen_mode), SM_H(Game_screen_mode));
 	nm_set_item_input(m[convert_fixed_field_to_ni(fixed_field_index::opt_input_resolution)], crestext);
 	nm_set_item_text(m[convert_fixed_field_to_ni(fixed_field_index::opt_label_aspect)], "aspect:");
-	snprintf(casptext.data(), casptext.size(), "%ix%i", GameCfg.AspectY, GameCfg.AspectX);
+	snprintf(casptext.data(), casptext.size(), "%ix%i", CGameCfg.AspectY, CGameCfg.AspectX);
 	nm_set_item_input(m[convert_fixed_field_to_ni(fixed_field_index::opt_input_aspect)], casptext);
 	nm_set_item_text(m[convert_fixed_field_to_ni(fixed_field_index::opt_blank_fullscreen)], "");
 	nm_set_item_checkbox(m[convert_fixed_field_to_ni(fixed_field_index::opt_checkbox_fullscreen)], "Fullscreen", gr_check_fullscreen());
@@ -1266,8 +1266,8 @@ void screen_resolution_menu::check_apply_preset_resolution() const
 		return;
 	const auto requested_mode = std::get<0>(*i);
 	const auto g = gcd(SM_W(requested_mode), SM_H(requested_mode));
-	GameCfg.AspectY = SM_W(requested_mode) / g;
-	GameCfg.AspectX = SM_H(requested_mode) / g;
+	CGameCfg.AspectY = SM_W(requested_mode) / g;
+	CGameCfg.AspectX = SM_H(requested_mode) / g;
 	apply_resolution(requested_mode);
 }
 #endif
@@ -1331,8 +1331,8 @@ void screen_resolution_menu::apply_custom_resolution() const
 		casp.height = aspect_height;
 	}
 	const auto g = gcd(SM_W(casp), SM_H(casp));
-	GameCfg.AspectY = SM_W(casp) / g;
-	GameCfg.AspectX = SM_H(casp) / g;
+	CGameCfg.AspectY = SM_W(casp) / g;
+	CGameCfg.AspectX = SM_H(casp) / g;
 	apply_resolution(cmode);
 }
 
@@ -2458,7 +2458,7 @@ namespace {
 
 #if DXX_USE_SDLMIXER || defined(_WIN32)
 #define DXX_SOUND_ADDON_MUSIC_MENU_ITEM(VERB)	\
-	DXX_MENUITEM(VERB, RADIO, "Built-in/Addon music", opt_sm_mtype1, GameCfg.MusicType == MUSIC_TYPE_BUILTIN, optgrp_music_type)	\
+	DXX_MENUITEM(VERB, RADIO, "Built-in/Addon music", opt_sm_mtype1, CGameCfg.MusicType == music_type::Builtin, optgrp_music_type)	\
 
 #else
 #define DXX_SOUND_ADDON_MUSIC_MENU_ITEM(VERB)
@@ -2466,7 +2466,7 @@ namespace {
 
 #if DXX_USE_SDL_REDBOOK_AUDIO
 #define DXX_SOUND_CD_MUSIC_MENU_ITEM(VERB)	\
-	DXX_MENUITEM(VERB, RADIO, "CD music", opt_sm_mtype2, GameCfg.MusicType == MUSIC_TYPE_REDBOOK, optgrp_music_type)	\
+	DXX_MENUITEM(VERB, RADIO, "CD music", opt_sm_mtype2, CGameCfg.MusicType == music_type::Redbook, optgrp_music_type)	\
 
 #define DXX_MUSIC_OPTIONS_CD_LABEL "CD music"
 #else
@@ -2476,7 +2476,7 @@ namespace {
 
 #if DXX_USE_SDLMIXER
 #define DXX_SOUND_JUKEBOX_MENU_ITEM(VERB)	\
-	DXX_MENUITEM(VERB, RADIO, "Jukebox", opt_sm_mtype3, GameCfg.MusicType == MUSIC_TYPE_CUSTOM, optgrp_music_type)	\
+	DXX_MENUITEM(VERB, RADIO, "Jukebox", opt_sm_mtype3, CGameCfg.MusicType == music_type::Custom, optgrp_music_type)	\
 
 #define DXX_MUSIC_OPTIONS_JUKEBOX_LABEL "Jukebox"
 #define DXX_SOUND_SDLMIXER_MENU_ITEMS(VERB)	\
@@ -2515,18 +2515,18 @@ namespace {
 #endif
 
 #define DSX_SOUND_MENU(VERB)	\
-	DXX_MENUITEM(VERB, SLIDER, TXT_FX_VOLUME, opt_sm_digivol, GameCfg.DigiVolume, 0, 8)	\
-	DXX_MENUITEM(VERB, SLIDER, "Music volume", opt_sm_musicvol, GameCfg.MusicVolume, 0, 8)	\
-	DXX_MENUITEM(VERB, CHECK, TXT_REVERSE_STEREO, opt_sm_revstereo, GameCfg.ReverseStereo)	\
+	DXX_MENUITEM(VERB, SLIDER, TXT_FX_VOLUME, opt_sm_digivol, CGameCfg.DigiVolume, 0, 8)	\
+	DXX_MENUITEM(VERB, SLIDER, "Music volume", opt_sm_musicvol, CGameCfg.MusicVolume, 0, 8)	\
+	DXX_MENUITEM(VERB, CHECK, TXT_REVERSE_STEREO, opt_sm_revstereo, CGameCfg.ReverseStereo)	\
 	DXX_MENUITEM(VERB, TEXT, "", opt_label_blank0)	\
 	DXX_MENUITEM(VERB, TEXT, "Music type:", opt_label_music_type)	\
-	DXX_MENUITEM(VERB, RADIO, "No music", opt_sm_mtype0, GameCfg.MusicType == MUSIC_TYPE_NONE, optgrp_music_type)	\
+	DXX_MENUITEM(VERB, RADIO, "No music", opt_sm_mtype0, CGameCfg.MusicType == music_type::None, optgrp_music_type)	\
 	DXX_SOUND_ADDON_MUSIC_MENU_ITEM(VERB)	\
 	DXX_SOUND_CD_MUSIC_MENU_ITEM(VERB)	\
 	DXX_SOUND_JUKEBOX_MENU_ITEM(VERB)	\
 	DXX_MENUITEM(VERB, TEXT, "", opt_label_blank1)	\
 	DXX_MENUITEM(VERB, TEXT, DXX_MUSIC_OPTIONS_CD_LABEL DXX_MUSIC_OPTIONS_SEPARATOR_TEXT DXX_MUSIC_OPTIONS_JUKEBOX_LABEL " options:", opt_label_music_options)	\
-	DXX_MENUITEM(VERB, CHECK, DSX_REDBOOK_PLAYORDER_TEXT, opt_sm_redbook_playorder, GameCfg.OrigTrackOrder)	\
+	DXX_MENUITEM(VERB, CHECK, DSX_REDBOOK_PLAYORDER_TEXT, opt_sm_redbook_playorder, CGameCfg.OrigTrackOrder)	\
 	DXX_SOUND_SDLMIXER_MENU_ITEMS(VERB)	\
 
 class sound_menu_items
@@ -2583,22 +2583,24 @@ window_event_result sound_menu::event_handler(const d_event &event)
 			auto &citem = static_cast<const d_change_event &>(event).citem;
 			if (citem == opt_sm_digivol)
 			{
-				GameCfg.DigiVolume = items[citem].value;
-				digi_set_digi_volume( (GameCfg.DigiVolume*32768)/8 );
+				const auto v = items[citem].value;
+				CGameCfg.DigiVolume = v;
+				digi_set_digi_volume((v * 32768) / 8);
 				digi_play_sample_once( SOUND_DROP_BOMB, F1_0 );
 			}
 			else if (citem == opt_sm_musicvol)
 			{
-				GameCfg.MusicVolume = items[citem].value;
-				songs_set_volume(GameCfg.MusicVolume);
+				const auto v = items[citem].value;
+				CGameCfg.MusicVolume = v;
+				songs_set_volume(v);
 			}
 			else if (citem == opt_sm_revstereo)
 			{
-				GameCfg.ReverseStereo = items[citem].value;
+				CGameCfg.ReverseStereo = items[citem].value;
 			}
 			else if (citem == opt_sm_mtype0)
 			{
-				GameCfg.MusicType = MUSIC_TYPE_NONE;
+				CGameCfg.MusicType = music_type::None;
 				replay = 1;
 			}
 			/*
@@ -2609,27 +2611,27 @@ window_event_result sound_menu::event_handler(const d_event &event)
 #if DXX_SOUND_ADDON_MUSIC_MENU_ITEM(COUNT) + 0
 			else if (citem == opt_sm_mtype1)
 			{
-				GameCfg.MusicType = MUSIC_TYPE_BUILTIN;
+				CGameCfg.MusicType = music_type::Builtin;
 				replay = 1;
 			}
 #endif
 #if DXX_USE_SDL_REDBOOK_AUDIO
 			else if (citem == opt_sm_mtype2)
 			{
-				GameCfg.MusicType = MUSIC_TYPE_REDBOOK;
+				CGameCfg.MusicType = music_type::Redbook;
 				replay = 1;
 			}
 #endif
 #if DXX_USE_SDLMIXER
 			else if (citem == opt_sm_mtype3)
 			{
-				GameCfg.MusicType = MUSIC_TYPE_CUSTOM;
+				CGameCfg.MusicType = music_type::Custom;
 				replay = 1;
 			}
 #endif
 			else if (citem == opt_sm_redbook_playorder)
 			{
-				GameCfg.OrigTrackOrder = items[citem].value;
+				CGameCfg.OrigTrackOrder = items[citem].value;
 				replay = static_cast<bool>(Game_wind);
 			}
 #if DXX_USE_SDLMIXER

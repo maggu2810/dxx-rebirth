@@ -176,6 +176,14 @@ static std::optional<R> build_upid_rspan(const std::span<const uint8_t> buf)
 	return buf.template first<R::extent>();
 }
 
+enum class Network_player_added : bool
+{
+	_0,
+	_1,
+};
+
+Network_player_added network_player_added;
+
 }
 
 }
@@ -242,8 +250,8 @@ net_udp_select_teams_menu_items::net_udp_select_teams_menu_items(const unsigned 
 			 * detected length. */
 			team_name.copy(std::span(s, strlen(s)));
 	};
-	set_team_name(team_names[0], TXT_BLUE);
-	set_team_name(team_names[1], TXT_RED);
+	set_team_name(team_names[team_number::blue], TXT_BLUE);
+	set_team_name(team_names[team_number::red], TXT_RED);
 	/* Round blue team up.  Round red team down. */
 	const unsigned num_blue_players = (num_players + 1) >> 1;
 	// Put first half of players on team A
@@ -252,7 +260,7 @@ net_udp_select_teams_menu_items::net_udp_select_teams_menu_items(const unsigned 
 	 * varies based on how many players are on the blue team, so the red
 	 * team label is set by setup_team_sensitive_entries.
 	 */
-	nm_set_item_input(m[idx_label_blue_team], team_names[0].a);
+	nm_set_item_input(m[idx_label_blue_team], team_names[team_number::blue].a);
 	const unsigned idx_label_blank0 = setup_team_sensitive_entries(num_players);
 	idx_item_accept = idx_label_blank0 + 1;
 	nm_set_item_text(m[idx_label_blank0], "");
@@ -275,7 +283,7 @@ unsigned net_udp_select_teams_menu_items::setup_team_sensitive_entries(const uns
 		++ ir;
 	}
 	idx_label_red_team = ir;
-	nm_set_item_input(*mi, team_names[1].a);
+	nm_set_item_input(*mi, team_names[team_number::red].a);
 	++ mi;
 	++ ir;
 	for (auto &&[i, ngp] : enumerate(partial_range(Netgame.players, num_players)))
@@ -442,8 +450,8 @@ const dispatch_table dispatch{};
 namespace {
 static int net_udp_do_join_game();
 static void net_udp_update_netgame();
-static void net_udp_send_objects(void);
-static void net_udp_send_rejoin_sync(unsigned player_num);
+static void net_udp_send_objects(Network_player_added network_player_added);
+static void net_udp_send_rejoin_sync(Network_player_added network_player_added, unsigned player_num);
 static void net_udp_do_refuse_stuff(const UDP_sequence_request_packet &their, const struct _sockaddr &peer_addr);
 static void net_udp_read_sync_packet(const uint8_t *data, uint_fast32_t data_len, const _sockaddr &sender_addr);
 static void net_udp_send_extras();
@@ -2019,7 +2027,7 @@ static void net_udp_welcome_player(const UDP_sequence_request_packet &their, con
 
 	unsigned player_num = UINT_MAX;
 	UDP_sync_player = {};
-	Network_player_added = 0;
+	network_player_added = Network_player_added::_0;
 
 	for (unsigned i = 0; i < N_players; i++)
 	{
@@ -2046,7 +2054,7 @@ static void net_udp_welcome_player(const UDP_sequence_request_packet &their, con
 			// Add player in an open slot, game not full yet
 
 			player_num = N_players;
-			Network_player_added = 1;
+			network_player_added = Network_player_added::_1;
 		}
 		else
 		{
@@ -2090,7 +2098,7 @@ static void net_udp_welcome_player(const UDP_sequence_request_packet &their, con
 				// Found a slot!
 
 				player_num = oldest_player;
-				Network_player_added = 1;
+				network_player_added = Network_player_added::_1;
 			}
 		}
 	}
@@ -2106,8 +2114,6 @@ static void net_udp_welcome_player(const UDP_sequence_request_packet &their, con
 
 		if (Newdemo_state == ND_STATE_RECORDING)
 			newdemo_record_multi_reconnect(player_num);
-
-		Network_player_added = 0;
 
 		digi_play_sample(SOUND_HUD_MESSAGE, F1_0);
 
@@ -2130,7 +2136,7 @@ static void net_udp_welcome_player(const UDP_sequence_request_packet &their, con
 	Network_send_objnum = -1;
 	Netgame.players[player_num].LastPacketTime = timer_query();
 
-	net_udp_send_objects();
+	net_udp_send_objects(network_player_added);
 }
 }
 
@@ -2323,7 +2329,7 @@ static void net_udp_stop_resync(const struct _sockaddr &udp_addr)
 namespace dsx {
 namespace {
 
-void net_udp_send_objects(void)
+void net_udp_send_objects(const Network_player_added network_player_added)
 {
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
 	auto &Objects = LevelUniqueObjectState.Objects;
@@ -2399,8 +2405,6 @@ void net_udp_send_objects(void)
 		PUT_INTEL_INT(&object_buffer[loc], remote_objnum);            loc += 4;
 		// use object_rw to send objects for now. if object sometime contains some day contains something useful the client should know about, we should use it. but by now it's also easier to use object_rw because then we also do not need fix64 timer values.
 		multi_object_to_object_rw(vmobjptr(i), reinterpret_cast<object_rw *>(&object_buffer[loc]));
-		if constexpr (words_bigendian)
-			object_rw_swap(reinterpret_cast<object_rw *>(&object_buffer[loc]), 1);
 		loc += sizeof(object_rw);
 	}
 
@@ -2434,7 +2438,7 @@ void net_udp_send_objects(void)
 			dxx_sendto(UDP_Socket[0], std::span(object_buffer).first<14>(), 0, UDP_sync_player.udp_addr);
 
 			// Send sync packet which tells the player who he is and to start!
-			net_udp_send_rejoin_sync(player_num);
+			net_udp_send_rejoin_sync(network_player_added, player_num);
 
 			// Turn off send object mode
 			Network_send_objnum = -1;
@@ -2575,7 +2579,7 @@ static void net_udp_read_object_packet(const d_level_shared_robot_info_state &Le
 namespace dsx {
 namespace {
 
-void net_udp_send_rejoin_sync(const unsigned player_num)
+void net_udp_send_rejoin_sync(const Network_player_added network_player_added, const unsigned player_num)
 {
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
 	auto &Objects = LevelUniqueObjectState.Objects;
@@ -2595,7 +2599,7 @@ void net_udp_send_rejoin_sync(const unsigned player_num)
 		return;
 	}
 
-	if (Network_player_added)
+	if (network_player_added != Network_player_added::_0)
 	{
 		const UDP_sequence_addplayer_packet add(UDP_sync_player.rank, UDP_sync_player.callsign, UDP_sync_player.player_num);
 		net_udp_new_player(add, UDP_sync_player.udp_addr);
@@ -2939,7 +2943,7 @@ static std::span<const uint8_t> net_udp_prepare_heavy_game_info(const d_level_un
 	buf[len] = Netgame.numconnected;						len++;
 	buf[len] = pack_game_flags(&Netgame.game_flag).value;							len++;
 	buf[len] = Netgame.team_vector;							len++;
-	PUT_INTEL_INT(&buf[len], Netgame.AllowedItems);					len += 4;
+	PUT_INTEL_INT(&buf[len], underlying_value(Netgame.AllowedItems));					len += 4;
 	/* In cooperative games, never shuffle. */
 	PUT_INTEL_INT(&buf[len], (Game_mode & GM_MULTI_COOP) ? 0 : Netgame.ShufflePowerupSeed);			len += 4;
 	buf[len] = Netgame.SecludedSpawns;			len += 1;
@@ -2974,8 +2978,8 @@ static std::span<const uint8_t> net_udp_prepare_heavy_game_info(const d_level_un
 		}
 	}
 	PUT_INTEL_SHORT(&buf[len], Netgame.segments_checksum);			len += 2;
-	PUT_INTEL_SHORT(&buf[len], Netgame.team_kills[0]);				len += 2;
-	PUT_INTEL_SHORT(&buf[len], Netgame.team_kills[1]);				len += 2;
+	PUT_INTEL_SHORT(&buf[len], Netgame.team_kills[team_number::blue]);				len += 2;
+	PUT_INTEL_SHORT(&buf[len], Netgame.team_kills[team_number::red]);				len += 2;
 	for (auto &i : Netgame.killed)
 	{
 		PUT_INTEL_SHORT(&buf[len], i);				len += 2;
@@ -3198,18 +3202,18 @@ static void net_udp_process_game_info_heavy(const uint8_t *data, uint_fast32_t, 
 		p.value = data[len];
 		Netgame.game_flag = unpack_game_flags(&p);						len++;
 		Netgame.team_vector = data[len];						len++;
-		Netgame.AllowedItems = GET_INTEL_INT(&(data[len]));				len += 4;
+		Netgame.AllowedItems = static_cast<netflag_flag>(GET_INTEL_INT(&data[len]));				len += 4;
 		Netgame.ShufflePowerupSeed = GET_INTEL_INT(&(data[len]));		len += 4;
 		Netgame.SecludedSpawns = data[len];		len += 1;
 #if defined(DXX_BUILD_DESCENT_I)
-		Netgame.SpawnGrantedItems = data[len];		len += 1;
+		Netgame.SpawnGrantedItems = netgrant_flag{data[len]};		len += 1;
 		Netgame.DuplicatePowerups.set_packed_field(data[len]);			len += 1;
 #elif defined(DXX_BUILD_DESCENT_II)
-		Netgame.SpawnGrantedItems = GET_INTEL_SHORT(&(data[len]));		len += 2;
+		Netgame.SpawnGrantedItems = netgrant_flag{GET_INTEL_SHORT(&(data[len]))};		len += 2;
 		Netgame.DuplicatePowerups.set_packed_field(GET_INTEL_SHORT(&data[len])); len += 2;
 		if (unlikely(map_granted_flags_to_laser_level(Netgame.SpawnGrantedItems) > MAX_SUPER_LASER_LEVEL))
 			/* Bogus input - reject whole entry */
-			Netgame.SpawnGrantedItems = 0;
+			Netgame.SpawnGrantedItems = netgrant_flag::None;
 		Netgame.Allow_marker_view = data[len++];
 		Netgame.AlwaysLighting = data[len++];
 		Netgame.ThiefModifierFlags = data[len++];
@@ -3235,8 +3239,8 @@ static void net_udp_process_game_info_heavy(const uint8_t *data, uint_fast32_t, 
 			}
 		}
 		Netgame.segments_checksum = GET_INTEL_SHORT(&(data[len]));			len += 2;
-		Netgame.team_kills[0] = GET_INTEL_SHORT(&(data[len]));				len += 2;	
-		Netgame.team_kills[1] = GET_INTEL_SHORT(&(data[len]));				len += 2;
+		Netgame.team_kills[team_number::blue] = GET_INTEL_SHORT(&(data[len]));				len += 2;
+		Netgame.team_kills[team_number::red] = GET_INTEL_SHORT(&(data[len]));				len += 2;
 		range_for (auto &i, Netgame.killed)
 		{
 			i = GET_INTEL_SHORT(&(data[len]));			len += 2;
@@ -3842,8 +3846,9 @@ struct netgame_powerups_allowed_menu_items
 	std::array<newmenu_item, multi_allow_powerup_text.size()> m;
 	netgame_powerups_allowed_menu_items()
 	{
+		const auto AllowedItems{underlying_value(Netgame.AllowedItems)};
 		for (auto &&[i, t, mi] : enumerate(zip(multi_allow_powerup_text, m)))
-			nm_set_item_checkbox(mi, t, (Netgame.AllowedItems >> i) & 1);
+			nm_set_item_checkbox(mi, t, AllowedItems & (1u << i));
 	}
 };
 
@@ -3862,11 +3867,11 @@ window_event_result netgame_powerups_allowed_menu::event_handler(const d_event &
 	{
 		case EVENT_WINDOW_CLOSE:
 			{
-				unsigned AllowedItems = 0;
+				typename std::underlying_type<netflag_flag>::type AllowedItems = 0;
 				for (auto &&[i, mi] : enumerate(m))
 					if (mi.value)
 						AllowedItems |= (1 << i);
-				Netgame.AllowedItems = AllowedItems;
+				Netgame.AllowedItems = netflag_flag{AllowedItems};
 				break;
 			}
 		default:
@@ -3885,24 +3890,24 @@ static void net_udp_set_power (void)
 #define D2X_GRANT_POWERUP_MENU(VERB)
 #elif defined(DXX_BUILD_DESCENT_II)
 #define D2X_GRANT_POWERUP_MENU(VERB)	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_GAUSS, opt_gauss, menu_bit_wrapper(flags, NETGRANT_GAUSS))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_HELIX, opt_helix, menu_bit_wrapper(flags, NETGRANT_HELIX))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_PHOENIX, opt_phoenix, menu_bit_wrapper(flags, NETGRANT_PHOENIX))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_OMEGA, opt_omega, menu_bit_wrapper(flags, NETGRANT_OMEGA))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_AFTERBURNER, opt_afterburner, menu_bit_wrapper(flags, NETGRANT_AFTERBURNER))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_AMMORACK, opt_ammo_rack, menu_bit_wrapper(flags, NETGRANT_AMMORACK))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_CONVERTER, opt_converter, menu_bit_wrapper(flags, NETGRANT_CONVERTER))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_HEADLIGHT, opt_headlight, menu_bit_wrapper(flags, NETGRANT_HEADLIGHT))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_GAUSS, opt_gauss, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_GAUSS))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_HELIX, opt_helix, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_HELIX))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_PHOENIX, opt_phoenix, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_PHOENIX))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_OMEGA, opt_omega, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_OMEGA))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_AFTERBURNER, opt_afterburner, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_AFTERBURNER))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_AMMORACK, opt_ammo_rack, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_AMMORACK))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_CONVERTER, opt_converter, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_CONVERTER))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_HEADLIGHT, opt_headlight, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_HEADLIGHT))	\
 
 #endif
 
 #define DXX_GRANT_POWERUP_MENU(VERB)	\
 	DXX_MENUITEM(VERB, NUMBER, "Laser level", opt_laser_level, menu_number_bias_wrapper<1>(laser_level), static_cast<unsigned>(laser_level::_1) + 1, static_cast<unsigned>(DXX_MAXIMUM_LASER_LEVEL) + 1)	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_QUAD, opt_quad_lasers, menu_bit_wrapper(flags, NETGRANT_QUAD))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_VULCAN, opt_vulcan, menu_bit_wrapper(flags, NETGRANT_VULCAN))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_SPREAD, opt_spreadfire, menu_bit_wrapper(flags, NETGRANT_SPREAD))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_PLASMA, opt_plasma, menu_bit_wrapper(flags, NETGRANT_PLASMA))	\
-	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_FUSION, opt_fusion, menu_bit_wrapper(flags, NETGRANT_FUSION))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_QUAD, opt_quad_lasers, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_QUAD))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_VULCAN, opt_vulcan, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_VULCAN))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_SPREAD, opt_spreadfire, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_SPREAD))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_PLASMA, opt_plasma, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_PLASMA))	\
+	DXX_MENUITEM(VERB, CHECK, NETFLAG_LABEL_FUSION, opt_fusion, menu_bit_wrapper(flags, netgrant_flag::NETGRANT_FUSION))	\
 	D2X_GRANT_POWERUP_MENU(VERB)
 
 class more_game_options_menu_items
@@ -4124,14 +4129,16 @@ public:
 	grant_powerup_menu_items(const laser_level level, const packed_spawn_granted_items p)
 	{
 		auto &flags = p.mask;
-		unsigned laser_level = static_cast<unsigned>(level);
+		auto laser_level{static_cast<uint8_t>(level)};
 		DXX_GRANT_POWERUP_MENU(ADD);
 	}
 	void read(packed_spawn_granted_items &p) const
 	{
-		unsigned laser_level, flags = 0;
+		uint8_t laser_level{};
+		typename std::underlying_type<netgrant_flag>::type flags{};
 		DXX_GRANT_POWERUP_MENU(READ);
-		p.mask = laser_level | flags;
+		flags |= laser_level;
+		p.mask = netgrant_flag{flags};
 	}
 };
 
@@ -5454,7 +5461,7 @@ void dispatch_table::do_protocol_frame(int force, int listen) const
 		net_udp_timeout_check(time);
 		net_udp_listen();
 		if (Network_send_objects)
-			net_udp_send_objects();
+			net_udp_send_objects(network_player_added);
 		if (Network_sending_extras && VerifyPlayerJoined==-1)
 			net_udp_send_extras();
 	}
@@ -5970,7 +5977,7 @@ void net_udp_process_pdata(const std::span<const uint8_t> data, const _sockaddr 
 	pd.qpp.orient.x = GET_INTEL_SHORT(&data[len]);					len += 2;
 	pd.qpp.orient.y = GET_INTEL_SHORT(&data[len]);					len += 2;
 	pd.qpp.orient.z = GET_INTEL_SHORT(&data[len]);					len += 2;
-	pd.qpp.pos = multi_get_vector(&data[len]);
+	pd.qpp.pos = multi_get_vector(data.subspan<3 + 8, 12>());
 	len += 12;
 	if (const auto s = segnum_t{GET_INTEL_SHORT(&data[len])}; vmsegidx_t::check_nothrow_index(s))
 	{
@@ -5979,9 +5986,9 @@ void net_udp_process_pdata(const std::span<const uint8_t> data, const _sockaddr 
 	}
 	else
 		return;
-	pd.qpp.vel = multi_get_vector(&data[len]);
+	pd.qpp.vel = multi_get_vector(data.subspan<3 + 8 + 12 + 2, 12>());
 	len += 12;
-	pd.qpp.rotvel = multi_get_vector(&data[len]);
+	pd.qpp.rotvel = multi_get_vector(data.subspan<3 + 8 + 12 + 2 + 12, 12>());
 	len += 12;
 
 	if (multi_i_am_master()) // I am host - must relay this packet to others!
@@ -6216,7 +6223,7 @@ void net_udp_do_refuse_stuff(const UDP_sequence_request_packet &their, const str
 		if (Game_mode & GM_TEAM)
 		{
 			HUD_init_message(HM_MULTI, "%s%s'%s' wants to join", rankstr.first, rankstr.second, their.callsign.operator const char *());
-			HUD_init_message(HM_MULTI, "Alt-1 assigns to team %s. Alt-2 to team %s", static_cast<const char *>(Netgame.team_name[0]), static_cast<const char *>(Netgame.team_name[1]));
+			HUD_init_message(HM_MULTI, "Alt-1 assigns to team %s. Alt-2 to team %s", Netgame.team_name[team_number::blue].operator const char *(), Netgame.team_name[team_number::red].operator const char *());
 		}
 		else
 		{

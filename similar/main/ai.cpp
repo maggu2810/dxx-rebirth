@@ -84,7 +84,6 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 using std::min;
 
 #define	AI_TURN_SCALE	1
-#define	BABY_SPIDER_ID	14
 
 namespace dsx {
 
@@ -137,19 +136,23 @@ const vms_vector &robot_gun_point::build(const robot_info &robptr, const object_
 #define	MAX_LEAD_DISTANCE	(F1_0*200)
 #define	LEAD_RANGE			(F1_0/2)
 
-constexpr std::array<std::array<int, 3>, NUM_D2_BOSSES> Spew_bots{{
-	{{38, 40, -1}},
-	{{37, -1, -1}},
-	{{43, 57, -1}},
-	{{26, 27, 58}},
-	{{59, 58, 54}},
-	{{60, 61, 54}},
+/* Invalid robot ID numbers in Spew_bots must be at the end of their row.  The
+ * corresponding count in Max_spew_bots will prevent the game from rolling a
+ * random index that loads the invalid robot ID number.
+ */
+constexpr enumerated_array<std::array<robot_id, 3>, NUM_D2_BOSSES, boss_robot_index> Spew_bots{{{
+	{{robot_id{38}, robot_id{40}, robot_id{UINT8_MAX}}},
+	{{robot_id{37}, robot_id{UINT8_MAX}, robot_id{UINT8_MAX}}},
+	{{robot_id{43}, robot_id{57}, robot_id{UINT8_MAX}}},
+	{{robot_id{26}, robot_id{27}, robot_id{58}}},
+	{{robot_id{59}, robot_id{58}, robot_id{54}}},
+	{{robot_id{60}, robot_id{61}, robot_id{54}}},
 
-	{{69, 29, 24}},
-	{{72, 60, 73}} 
-}};
+	{{robot_id{69}, robot_id{29}, robot_id{24}}},
+	{{robot_id{72}, robot_id{60}, robot_id{73}}} 
+}}};
 
-constexpr std::array<int, NUM_D2_BOSSES> Max_spew_bots{{2, 1, 2, 3, 3, 3, 3, 3}};
+constexpr enumerated_array<uint8_t, NUM_D2_BOSSES, boss_robot_index> Max_spew_bots{{{2, 1, 2, 3, 3, 3, 3, 3}}};
 static fix Dist_to_last_fired_upon_player_pos;
 #endif
 
@@ -252,8 +255,28 @@ point_seg_array_t::iterator       Point_segs_free_ptr;
 // 23 super boss
 
 // byte	Super_boss_gate_list[] = {0, 1, 2, 9, 11, 16, 18, 19, 21, 22, 0, 9, 9, 16, 16, 18, 19, 19, 22, 22};
-constexpr std::array<int8_t, 21> Super_boss_gate_list{{
-	0, 1, 8, 9, 10, 11, 12, 15, 16, 18, 19, 20, 22, 0, 8, 11, 19, 20, 8, 20, 8
+constexpr std::array<robot_id, 21> Super_boss_gate_list{{
+	robot_id{0},
+	robot_id{1},
+	robot_id{8},
+	robot_id{9},
+	robot_id{10},
+	robot_id{11},
+	robot_id{12},
+	robot_id{15},
+	robot_id{16},
+	robot_id{18},
+	robot_id{19},
+	robot_id{20},
+	robot_id{22},
+	robot_id{0},
+	robot_id{8},
+	robot_id{11},
+	robot_id{19},
+	robot_id{20},
+	robot_id{8},
+	robot_id{20},
+	robot_id{8},
 }};
 
 std::optional<ai_static_state> build_ai_state_from_untrusted(const uint8_t untrusted)
@@ -288,13 +311,13 @@ vms_vector	Last_fired_upon_player_pos;
 
 // -- ubyte Boss_cloaks[NUM_D2_BOSSES]              = {1,1,1,1,1,1};      // Set byte if this boss can cloak
 
-const boss_flags_t Boss_teleports{{1,1,1,1,1,1, 1,1}}; // Set byte if this boss can teleport
-const boss_flags_t Boss_spew_more{{0,1,0,0,0,0, 0,0}}; // If set, 50% of time, spew two bots.
-const boss_flags_t Boss_spews_bots_energy{{1,1,0,1,0,1, 1,1}}; // Set byte if boss spews bots when hit by energy weapon.
-const boss_flags_t Boss_spews_bots_matter{{0,0,1,1,1,1, 0,1}}; // Set byte if boss spews bots when hit by matter weapon.
-const boss_flags_t Boss_invulnerable_energy{{0,0,1,1,0,0, 0,0}}; // Set byte if boss is invulnerable to energy weapons.
-const boss_flags_t Boss_invulnerable_matter{{0,0,0,0,1,1, 1,0}}; // Set byte if boss is invulnerable to matter weapons.
-const boss_flags_t Boss_invulnerable_spot{{0,0,0,0,0,1, 0,1}}; // Set byte if boss is invulnerable in all but a certain spot.  (Dot product fvec|vec_to_collision < BOSS_INVULNERABLE_DOT)
+constexpr boss_flags_t Boss_teleports{{{1,1,1,1,1,1, 1,1}}}; // Set byte if this boss can teleport
+const boss_flags_t Boss_spew_more{{{0,1,0,0,0,0, 0,0}}}; // If set, 50% of time, spew two bots.
+const boss_flags_t Boss_spews_bots_energy{{{1,1,0,1,0,1, 1,1}}}; // Set byte if boss spews bots when hit by energy weapon.
+const boss_flags_t Boss_spews_bots_matter{{{0,0,1,1,1,1, 0,1}}}; // Set byte if boss spews bots when hit by matter weapon.
+const boss_flags_t Boss_invulnerable_energy{{{0,0,1,1,0,0, 0,0}}}; // Set byte if boss is invulnerable to energy weapons.
+const boss_flags_t Boss_invulnerable_matter{{{0,0,0,0,1,1, 1,0}}}; // Set byte if boss is invulnerable to matter weapons.
+const boss_flags_t Boss_invulnerable_spot{{{0,0,0,0,0,1, 0,1}}}; // Set byte if boss is invulnerable in all but a certain spot.  (Dot product fvec|vec_to_collision < BOSS_INVULNERABLE_DOT)
 
 segnum_t             Believed_player_seg;
 }
@@ -638,7 +661,7 @@ void init_ai_object(const d_robot_info_array &Robot_info, const vmobjptridx_t ob
 #endif
 	aip->danger_laser_num = object_none;
 
-	if (robptr.boss_flag
+	if (robptr.boss_flag != boss_robot_id::None
 #if DXX_USE_EDITOR
 		&& !EditorWindow
 #endif
@@ -706,11 +729,12 @@ void init_ai_objects(const d_robot_info_array &Robot_info)
 //-------------------------------------------------------------------------------------------
 void ai_turn_towards_vector(const vms_vector &goal_vector, object_base &objp, fix rate)
 {
-	//	Not all robots can turn, eg, SPECIAL_REACTOR_ROBOT
+	//	Not all robots can turn, eg, robot_id::special_reactor
 	if (rate == 0)
 		return;
 
-	if (objp.type == OBJ_ROBOT && (get_robot_id(objp) == BABY_SPIDER_ID)) {
+	if (objp.type == OBJ_ROBOT && get_robot_id(objp) == robot_id::baby_spider)
+	{
 		physics_turn_towards_vector(goal_vector, objp, rate);
 		return;
 	}
@@ -852,14 +876,13 @@ namespace {
 //	Return 1 if animates, else return 0
 static int do_silly_animation(const d_robot_info_array &Robot_info, object &objp)
 {
-	int				robot_type;
 	polyobj_info	*const pobj_info = &objp.rtype.pobj_info;
 	auto &aip = objp.ctype.ai_info;
 	int				at_goal;
 	int				attack_type;
 	int				flinch_attack_scale = 1;
 
-	robot_type = get_robot_id(objp);
+	const auto robot_type{get_robot_id(objp)};
 	auto &Robot_joints = LevelSharedRobotJointState.Robot_joints;
 	auto &robptr = Robot_info[robot_type];
 	attack_type = robptr.attack_type;
@@ -1169,7 +1192,7 @@ static void ai_fire_laser_at_player(const d_robot_info_array &Robot_info, const 
 
 	//	Don't let the boss fire while in death roll.  Sorry, this is the easiest way to do this.
 	//	If you try to key the boss off obj->ctype.ai_info.dying_start_time, it will hose the endlevel stuff.
-	if (BossUniqueState.Boss_dying_start_time && robptr.boss_flag)
+	if (BossUniqueState.Boss_dying_start_time && robptr.boss_flag != boss_robot_id::None)
 		return;
 #endif
 
@@ -1308,7 +1331,7 @@ player_led: ;
 	set_next_fire_time(obj, ailp, robptr, gun_num);
 
 	//	If the boss fired, allow him to teleport very soon (right after firing, cool!), pending other factors.
-	if (robptr.boss_flag == BOSS_D1 || robptr.boss_flag == BOSS_SUPER)
+	if (robptr.boss_flag == boss_robot_id::d1_1 || robptr.boss_flag == boss_robot_id::d1_superboss)
 		BossUniqueState.Last_teleport_time -= LevelSharedBossState.Boss_teleport_interval / 2;
 }
 
@@ -1519,7 +1542,7 @@ static void ai_move_relative_to_player(const d_robot_info_array &Robot_info, con
 
 				//	The laser is seen by the robot, see if it might hit the robot.
 				//	Get the laser's direction.  If it's a polyobj, it can be gotten cheaply from the orientation matrix.
-				if (dobjp->render_type == RT_POLYOBJ)
+				if (dobjp->render_type == render_type::RT_POLYOBJ)
 					laser_fvec = dobjp->orient.fvec;
 				else {		//	Not a polyobj, get velocity and normalize.
 					laser_fvec = vm_vec_normalized_quick(dobjp->mtype.phys_info.velocity);	//dobjp->orient.fvec;
@@ -1922,7 +1945,7 @@ int ai_door_is_openable(
 		return 0;
 
 #if defined(DXX_BUILD_DESCENT_I)
-	if (get_robot_id(obj) == ROBOT_BRAIN || obj.ctype.ai_info.behavior == ai_behavior::AIB_RUN_FROM)
+	if (get_robot_id(obj) == robot_id::brain || obj.ctype.ai_info.behavior == ai_behavior::AIB_RUN_FROM)
 	{
 
 		if (wall_num != wall_none)
@@ -2006,7 +2029,7 @@ int ai_door_is_openable(
 					return 1;
 		}
 	}
-	else if (get_robot_id(obj) == ROBOT_BRAIN || obj.ctype.ai_info.behavior == ai_behavior::AIB_RUN_FROM || obj.ctype.ai_info.behavior == ai_behavior::AIB_SNIPE)
+	else if (get_robot_id(obj) == robot_id::brain || obj.ctype.ai_info.behavior == ai_behavior::AIB_RUN_FROM || obj.ctype.ai_info.behavior == ai_behavior::AIB_SNIPE)
 	{
 		if (wall_num != wall_none)
 		{
@@ -2079,7 +2102,7 @@ static int check_object_object_intersection(const vms_vector &pos, fix size, con
 // --------------------------------------------------------------------------------------------------------------------
 //	Return objnum if object created, else return -1.
 //	If pos == NULL, pick random spot in segment.
-static imobjptridx_t create_gated_robot(const d_robot_info_array &Robot_info, const d_vclip_array &Vclip, fvcobjptr &vcobjptr, const vmsegptridx_t segp, const unsigned object_id, const vms_vector *const pos)
+static imobjptridx_t create_gated_robot(const d_robot_info_array &Robot_info, const d_vclip_array &Vclip, fvcobjptr &vcobjptr, const vmsegptridx_t segp, const robot_id object_id, const vms_vector *const pos)
 {
 	auto &BossUniqueState = LevelUniqueObjectState.BossState;
 	auto &LevelSharedVertexState = LevelSharedSegmentState.get_vertex_state();
@@ -2123,7 +2146,7 @@ static imobjptridx_t create_gated_robot(const d_robot_info_array &Robot_info, co
 	}
 
 #if defined(DXX_BUILD_DESCENT_I)
-	const ai_behavior default_behavior = (object_id == 10) //	This is a toaster guy!
+	const ai_behavior default_behavior = (object_id == robot_id::toaster) //	This is a toaster guy!
 	? ai_behavior::AIB_RUN_FROM
 	: ai_behavior::AIB_NORMAL;
 #elif defined(DXX_BUILD_DESCENT_II)
@@ -2155,8 +2178,8 @@ static imobjptridx_t create_gated_robot(const d_robot_info_array &Robot_info, co
 	objp->lifeleft = F1_0*30;	//	Gated in robots only live 30 seconds.
 #endif
 
-	object_create_explosion_without_damage(Vclip, segp, object_pos, i2f(10), VCLIP_MORPHING_ROBOT);
-	digi_link_sound_to_pos( Vclip[VCLIP_MORPHING_ROBOT].sound_num, segp, sidenum_t::WLEFT, object_pos, 0 , F1_0);
+	object_create_explosion_without_damage(Vclip, segp, object_pos, i2f(10), vclip_index::morphing_robot);
+	digi_link_sound_to_pos(Vclip[vclip_index::morphing_robot].sound_num, segp, sidenum_t::WLEFT, object_pos, 0, F1_0);
 	morph_start(LevelUniqueMorphObjectState, LevelSharedPolygonModelState, objp);
 
 	BossUniqueState.Last_gate_time = GameTime64;
@@ -2173,7 +2196,7 @@ static imobjptridx_t create_gated_robot(const d_robot_info_array &Robot_info, co
 //	The process of him bringing in a robot takes one second.
 //	Then a robot appears somewhere near the player.
 //	Return objnum if robot successfully created, else return -1
-imobjptridx_t gate_in_robot(const d_robot_info_array &Robot_info, const unsigned type, const vmsegptridx_t segnum)
+imobjptridx_t gate_in_robot(const d_robot_info_array &Robot_info, const robot_id type, const vmsegptridx_t segnum)
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vcobjptr = Objects.vcptr;
@@ -2182,7 +2205,7 @@ imobjptridx_t gate_in_robot(const d_robot_info_array &Robot_info, const unsigned
 
 namespace {
 
-static imobjptridx_t gate_in_robot(const d_robot_info_array &Robot_info, fvmsegptridx &vmsegptridx, int type)
+static imobjptridx_t gate_in_robot(const d_robot_info_array &Robot_info, fvmsegptridx &vmsegptridx, const robot_id type)
 {
 	auto &Boss_gate_segs = LevelSharedBossState.Gate_segs;
 	auto segnum = Boss_gate_segs[(d_rand() * Boss_gate_segs.size()) >> 15];
@@ -2394,7 +2417,7 @@ static void teleport_boss(const d_robot_info_array &Robot_info, const d_vclip_ar
 	const auto boss_dir = vm_vec_sub(target_pos, objp->pos);
 	vm_vector_2_matrix(objp->orient, boss_dir, nullptr, nullptr);
 
-	digi_link_sound_to_pos(Vclip[VCLIP_MORPHING_ROBOT].sound_num, rand_segp, sidenum_t::WLEFT, objp->pos, 0, F1_0);
+	digi_link_sound_to_pos(Vclip[vclip_index::morphing_robot].sound_num, rand_segp, sidenum_t::WLEFT, objp->pos, 0, F1_0);
 	digi_kill_sound_linked_to_object( objp);
 
 	//	After a teleport, boss can fire right away.
@@ -2412,7 +2435,7 @@ static void teleport_boss(const d_robot_info_array &Robot_info, const d_vclip_ar
 void start_boss_death_sequence(d_level_unique_boss_state &BossUniqueState, const d_robot_info_array &Robot_info, object &objp)
 {
 	auto &robptr = Robot_info[get_robot_id(objp)];
-	if (robptr.boss_flag)
+	if (robptr.boss_flag != boss_robot_id::None)
 	{
 		BossUniqueState.Boss_dying = 1;
 		BossUniqueState.Boss_dying_start_time = GameTime64;
@@ -2464,11 +2487,8 @@ imobjptridx_t boss_spew_robot(const d_robot_info_array &Robot_info, const object
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vcobjptr = Objects.vcptr;
-	int		boss_index;
-
-	boss_index = Robot_info[get_robot_id(objp)].boss_flag - BOSS_D2;
-
-	Assert((boss_index >= 0) && (boss_index < NUM_D2_BOSSES));
+	const auto boss_index = build_boss_robot_index_from_boss_robot_id(Robot_info[get_robot_id(objp)].boss_flag);
+	assert(Boss_spew_more.valid_index(boss_index));
 
 	auto &Segments = LevelUniqueSegmentState.get_segments();
 	const auto &&segnum = find_point_seg(LevelSharedSegmentState, LevelUniqueSegmentState, pos, Segments.vmptridx(objp.segnum));
@@ -2723,9 +2743,7 @@ static void do_super_boss_stuff(const d_robot_info_array &Robot_info, fvmsegptri
 				uint_fast32_t randtype = (d_rand() * MAX_GATE_INDEX) >> 15;
 
 				Assert(randtype < MAX_GATE_INDEX);
-				randtype = Super_boss_gate_list[randtype];
-
-				const auto &&rtval = gate_in_robot(Robot_info, vmsegptridx, randtype);
+				const auto &&rtval = gate_in_robot(Robot_info, vmsegptridx, Super_boss_gate_list[randtype]);
 				if (rtval != object_none && (Game_mode & GM_MULTI))
 				{
 					multi_send_boss_create_robot(objp, rtval);
@@ -2740,14 +2758,10 @@ static void do_d2_boss_stuff(fvmsegptridx &vmsegptridx, const vmobjptridx_t objp
 	auto &BossUniqueState = LevelUniqueObjectState.BossState;
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
-	int	boss_id, boss_index;
 
 	auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
-	boss_id = Robot_info[get_robot_id(objp)].boss_flag;
-
-	Assert((boss_id >= BOSS_D2) && (boss_id < BOSS_D2 + NUM_D2_BOSSES));
-
-	boss_index = boss_id - BOSS_D2;
+	const auto boss_index = build_boss_robot_index_from_boss_robot_id(Robot_info[get_robot_id(objp)].boss_flag);
+	assert(Boss_spew_more.valid_index(boss_index));
 
 #ifndef NDEBUG
 	if (objp->shields != Prev_boss_shields) {
@@ -2807,7 +2821,7 @@ static int maybe_ai_do_actual_firing_stuff(object &obj)
 	if (Game_mode & GM_MULTI)
 	{
 		auto &aip = obj.ctype.ai_info;
-		if (aip.GOAL_STATE != AIS_FLIN && get_robot_id(obj) != ROBOT_BRAIN)
+		if (aip.GOAL_STATE != AIS_FLIN && get_robot_id(obj) != robot_id::brain)
 		{
 			const auto s = aip.CURRENT_STATE;
 			if (s == AIS_FIRE)
@@ -2908,7 +2922,8 @@ static void ai_do_actual_firing_stuff(const d_robot_info_array &Robot_info, fvmo
 		//	Above comment corrected.  Date changed from 1994, to 1995.  Should fix some very subtle bugs, as well as not cause me to wonder, in the future, why I was writing AI code for onearm ten months before he existed.
 		if (!object_animates || ready_to_fire_any_weapon(robptr, ailp, 0)) {
 			dot = vm_vec_dot(obj->orient.fvec, vec_to_player);
-			if ((dot >= 7*F1_0/8) || ((dot > F1_0/4) &&  robptr.boss_flag)) {
+			if ((dot >= 7*F1_0/8) || ((dot > F1_0/4) && robptr.boss_flag != boss_robot_id::None))
+			{
 				if (robot_gun_number_valid(robptr, gun_num))
 				{
 					if (robptr.attack_type == 1) {
@@ -3079,10 +3094,10 @@ static void make_nearby_robot_snipe(fvmsegptr &vmsegptr, const object &robot, co
 			if (obj.ctype.ai_info.behavior == ai_behavior::AIB_RUN_FROM)
 				continue;
 			const auto rid = get_robot_id(obj);
-			if (rid == ROBOT_BRAIN)
+			if (rid == robot_id::brain)
 				continue;
 			auto &robptr = Robot_info[rid];
-			if (!robptr.boss_flag && !robot_is_companion(robptr))
+			if (robptr.boss_flag == boss_robot_id::None && !robot_is_companion(robptr))
 			{
 					obj.ctype.ai_info.behavior = ai_behavior::AIB_SNIPE;
 					obj.ctype.ai_info.ail.mode = ai_mode::AIM_SNIPE_ATTACK;
@@ -3294,7 +3309,7 @@ void do_ai_frame(const d_level_shared_robot_info_state &LevelSharedRobotInfoStat
 	}
 
 	Assert(obj->segnum != segment_none);
-	assert(get_robot_id(obj) < LevelSharedRobotInfoState.N_robot_types);
+	assert(underlying_value(get_robot_id(obj)) < LevelSharedRobotInfoState.N_robot_types);
 
 	obj_ref = objnum ^ d_tick_count;
 
@@ -3396,10 +3411,10 @@ _exit_cheat:
 	}
 
 	switch (const auto boss_flag = robptr.boss_flag) {
-		case 0:
+		case boss_robot_id::None:
 			break;
 			
-		case BOSS_SUPER:
+		case boss_robot_id::d1_superboss:
 			if (aip->GOAL_STATE == AIS_FLIN)
 				aip->GOAL_STATE = AIS_FIRE;
 			if (aip->CURRENT_STATE == AIS_FLIN)
@@ -3426,7 +3441,7 @@ _exit_cheat:
 			Int3();	//	Bogus boss flag value.
 			break;
 #endif
-		case BOSS_D1:
+		case boss_robot_id::d1_1:
 		{
 			if (aip->GOAL_STATE == AIS_FLIN)
 				aip->GOAL_STATE = AIS_FIRE;
@@ -3442,7 +3457,7 @@ _exit_cheat:
 				pv = player_visibility_state::no_line_of_sight;
 			}
 
-			if (boss_flag != BOSS_D1)
+			if (boss_flag != boss_robot_id::d1_1)
 			{
 				do_d2_boss_stuff(vmsegptridx, obj, pv);
 				break;
@@ -3618,7 +3633,7 @@ _exit_cheat:
 	if (ailp.player_awareness_type == player_awareness_type_t::PA_WEAPON_ROBOT_COLLISION || ailp.player_awareness_type >= player_awareness_type_t::PA_PLAYER_COLLISION)
 #if defined(DXX_BUILD_DESCENT_I)
 	{
-		if ((aip->behavior != ai_behavior::AIB_STILL) && (aip->behavior != ai_behavior::AIB_FOLLOW_PATH) && (aip->behavior != ai_behavior::AIB_RUN_FROM) && (get_robot_id(obj) != ROBOT_BRAIN))
+		if (aip->behavior != ai_behavior::AIB_STILL && aip->behavior != ai_behavior::AIB_FOLLOW_PATH && aip->behavior != ai_behavior::AIB_RUN_FROM && get_robot_id(obj) != robot_id::brain)
 			ailp.mode = ai_mode::AIM_CHASE_OBJECT;
 	}
 #elif defined(DXX_BUILD_DESCENT_II)
@@ -3674,7 +3689,7 @@ _exit_cheat:
 	// - -  - -  - -  - -  - -  - -  - -  - -  - -  - -  - -  - -  - -  - -  -
 	//	Perform special ability
 	switch (get_robot_id(obj)) {
-		case ROBOT_BRAIN:
+		case robot_id::brain:
 			// Robots function nicely if behavior is Station.  This
 			// means they won't move until they can see the player, at
 			// which time they will start wandering about opening doors.
@@ -4007,7 +4022,7 @@ _exit_cheat:
 			if ((aip->behavior != ai_behavior::AIB_FOLLOW_PATH) && (aip->behavior != ai_behavior::AIB_RUN_FROM))
 				do_firing_stuff(obj, player_info.powerup_flags, player_visibility);
 
-			if (player_visibility.visibility == player_visibility_state::visible_and_in_field_of_view && aip->behavior != ai_behavior::AIB_FOLLOW_PATH && aip->behavior != ai_behavior::AIB_RUN_FROM && get_robot_id(obj) != ROBOT_BRAIN)
+			if (player_visibility.visibility == player_visibility_state::visible_and_in_field_of_view && aip->behavior != ai_behavior::AIB_FOLLOW_PATH && aip->behavior != ai_behavior::AIB_RUN_FROM && get_robot_id(obj) != robot_id::brain)
 			{
 				if (robptr.attack_type == 0)
 					ailp.mode = ai_mode::AIM_CHASE_OBJECT;
@@ -4029,7 +4044,7 @@ _exit_cheat:
 				aip->behavior != ai_behavior::AIB_SNIPE &&
 				aip->behavior != ai_behavior::AIB_FOLLOW &&
 				aip->behavior != ai_behavior::AIB_RUN_FROM &&
-				get_robot_id(obj) != ROBOT_BRAIN &&
+				get_robot_id(obj) != robot_id::brain &&
 				robot_is_companion(robptr) != 1 &&
 				robot_is_thief(robptr) != 1)
 			{
@@ -4188,7 +4203,7 @@ _exit_cheat:
 
 			break;
 		case ai_mode::AIM_OPEN_DOOR: {       // trying to open a door.
-			Assert(get_robot_id(obj) == ROBOT_BRAIN);     // Make sure this guy is allowed to be in this mode.
+			assert(get_robot_id(obj) == robot_id::brain);     // Make sure this guy is allowed to be in this mode.
 
 			if (!ai_multiplayer_awareness(obj, 62))
 				return;
@@ -4298,7 +4313,8 @@ _exit_cheat:
 	if (ready_to_fire_any_weapon(robptr, ailp, 0) && (aip->GOAL_STATE == AIS_FIRE))
 		aip->CURRENT_STATE = AIS_FIRE;
 
-	if ((aip->GOAL_STATE != AIS_FLIN)  && (get_robot_id(obj) != ROBOT_BRAIN)) {
+	if (aip->GOAL_STATE != AIS_FLIN && get_robot_id(obj) != robot_id::brain)
+	{
 		switch (aip->CURRENT_STATE) {
 			case AIS_NONE:
 				compute_vis_and_vec(Robot_info, obj, player_info, vis_vec_pos, ailp, player_visibility, robptr);
@@ -4608,7 +4624,7 @@ void do_ai_frame_all(const d_robot_info_array &Robot_info)
 		range_for (const auto &&objp, vmobjptridx)
 		{
 			if (objp->type == OBJ_ROBOT)
-				if (Robot_info[get_robot_id(objp)].boss_flag)
+				if (Robot_info[get_robot_id(objp)].boss_flag != boss_robot_id::None)
 					do_boss_dying_frame(Robot_info, objp);
 		}
 	}
@@ -4963,12 +4979,8 @@ int ai_restore_state(const d_robot_info_array &Robot_info, PHYSFS_File *fp, int 
 		{
 			if (o->type == OBJ_ROBOT)
 			{
-				auto boss_id = Robot_info[get_robot_id(o)].boss_flag;
-				if (boss_id
-#if defined(DXX_BUILD_DESCENT_II)
-				&& (boss_id == BOSS_D1 || boss_id == BOSS_D2 || (boss_id >= BOSS_D2 && Boss_teleports[boss_id - BOSS_D2]))
-#endif
-				)
+				const auto boss_id = Robot_info[get_robot_id(o)].boss_flag;
+				if (boss_id != boss_robot_id::None)
 				{
 					const auto Last_teleport_time = BossUniqueState.Last_teleport_time;
 					if (Last_teleport_time != 0 && Last_teleport_time != BossUniqueState.Boss_cloak_start_time)

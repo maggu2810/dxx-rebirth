@@ -127,10 +127,9 @@ enum class kick_player_reason : uint8_t
 };
 
 }
-#define MULTI_PROTO_UDP 1 // UDP protocol
 
 // What version of the multiplayer protocol is this? Increment each time something drastic changes in Multiplayer without the version number changes. Reset to 0 each time the version of the game changes
-#define MULTI_PROTO_VERSION	static_cast<uint16_t>(16)
+constexpr std::uint16_t MULTI_PROTO_VERSION{16};
 // PROTOCOL VARIABLES AND DEFINES - END
 
 // limits for Packets (i.e. positional updates) per sec
@@ -254,28 +253,31 @@ struct dispatch_table
 }
 
 #define define_netflag_bit_enum(NAME,STR)	BIT_##NAME,
-#define define_netflag_bit_mask(NAME,STR)	NAME = (1 << BIT_##NAME),
-#define define_netflag_powerup_mask(NAME,STR)	| (NAME)
+#define define_netflag_bit_mask(NAME,STR)	NAME = 1u << static_cast<uint8_t>(netflag_bit::BIT_##NAME),
+#define define_netflag_powerup_mask(NAME,STR)	| static_cast<uint32_t>(netflag_flag::NAME)
 enum netflag_bit : uint8_t
 {
 	for_each_netflag_value(define_netflag_bit_enum)
 };
 // Bitmask for netgame_info->AllowedItems to set allowed items in Netgame
-enum netflag_flag :
+enum class netflag_flag :
 #if defined(DXX_BUILD_DESCENT_I)
 	uint16_t
 #elif defined(DXX_BUILD_DESCENT_II)
 	uint32_t
 #endif
 {
+	None = 0,
 	for_each_netflag_value(define_netflag_bit_mask)
 };
+#undef define_netflag_bit_mask
 enum netgrant_bit : uint8_t
 {
 	BIT_NETGRANT_LASER = DXX_GRANT_LASER_LEVEL_BITS - 1,
 	for_each_netgrant_value(define_netflag_bit_enum)
 	BIT_NETGRANT_MAXIMUM
 };
+#define define_netgrant_bit_mask(NAME,STR)	NAME = 1u << static_cast<uint8_t>(netgrant_bit::BIT_##NAME),
 enum netgrant_flag :
 #if defined(DXX_BUILD_DESCENT_I)
 	uint8_t
@@ -283,32 +285,22 @@ enum netgrant_flag :
 	uint16_t
 #endif
 {
-	for_each_netgrant_value(define_netflag_bit_mask)
+	None = 0,
+	for_each_netgrant_value(define_netgrant_bit_mask)
 };
 #undef define_netflag_bit_enum
-#undef define_netflag_bit_mask
+#undef define_netgrant_bit_mask
 
 struct packed_spawn_granted_items
 {
-#if defined(DXX_BUILD_DESCENT_I)
-	typedef uint8_t mask_type;
-#elif defined(DXX_BUILD_DESCENT_II)
-	typedef uint16_t mask_type;
-#endif
-	mask_type mask;
+	netgrant_flag mask{netgrant_flag::None};
 	static_assert(BIT_NETGRANT_MAXIMUM <= sizeof(mask) << 3, "mask too small");
-	packed_spawn_granted_items() = default;
-	constexpr packed_spawn_granted_items(mask_type m) :
-		mask(m)
+	constexpr packed_spawn_granted_items() = default;
+	constexpr packed_spawn_granted_items(const netgrant_flag m) :
+		mask{m}
 	{
 	}
-	template <unsigned U>
-		constexpr packed_spawn_granted_items(std::integral_constant<unsigned, U>) :
-			mask(U)
-	{
-		assert_equal(U, static_cast<mask_type>(U), "truncation error");
-	}
-	explicit operator bool() const { return mask; }
+	explicit operator bool() const { return mask != netgrant_flag::None; }
 	bool has_quad_laser() const { return mask & NETGRANT_QUAD; }
 #if defined(DXX_BUILD_DESCENT_II)
 	bool has_afterburner() const { return mask & NETGRANT_AFTERBURNER; }
@@ -519,7 +511,7 @@ void multi_sort_kill_list(void);
 }
 #endif
 void multi_reset_stuff(void);
-int get_team(playernum_t pnum);
+team_number get_team(playernum_t pnum);
 void multi_disconnect_player(playernum_t);
 
 #ifdef dsx
@@ -564,7 +556,6 @@ extern int Network_rejoined;
 extern int Network_sending_extras;
 extern int VerifyPlayerJoined;
 extern int Player_joining_extras;
-extern int Network_player_added;
 
 extern per_player_array<per_player_array<uint16_t>> kill_matrix;
 extern per_team_array<int16_t> team_kills;
@@ -580,7 +571,7 @@ enum class show_kill_list_mode : int8_t
 	team_kills = 3,
 };
 extern show_kill_list_mode Show_kill_list;
-extern int Show_reticle_name;
+extern bool Show_reticle_name;
 extern fix Show_kill_list_timer;
 
 // Used to send network messages
@@ -594,9 +585,17 @@ extern std::array<sbyte, MAX_OBJECTS> object_owner;
 extern int multi_quit_game;
 
 extern per_player_array<msgsend_state> multi_sending_message;
-extern int multi_defining_message;
+enum class multi_macro_message_index : uint8_t
+{
+	_0,
+	_1,
+	_2,
+	_3,
+	None = UINT8_MAX,
+};
+extern multi_macro_message_index multi_defining_message;
 
-vms_vector multi_get_vector(const uint8_t *buf);
+vms_vector multi_get_vector(std::span<const uint8_t, 12> buf);
 void multi_put_vector(uint8_t *buf, const vms_vector &v);
 
 }
@@ -718,8 +717,8 @@ void MultiLevelInv_Recount();
 #ifdef dsx
 namespace dsx {
 extern bool MultiLevelInv_AllowSpawn(powerup_type_t powerup_type);
-uint_fast32_t multi_powerup_is_allowed(const unsigned id, const unsigned AllowedItems);
-uint_fast32_t multi_powerup_is_allowed(const unsigned id, const unsigned AllowedItems, const unsigned SpawnGrantedItems);
+netflag_flag multi_powerup_is_allowed(unsigned id, const netflag_flag AllowedItems);
+netflag_flag multi_powerup_is_allowed(unsigned id, const netflag_flag AllowedItems, const netflag_flag SpawnGrantedItems);
 void show_netgame_info(const netgame_info &netgame);
 void multi_send_player_inventory(multiplayer_data_priority priority);
 const char *multi_common_deny_save_game(const fvcobjptr &vcobjptr, ranges::subrange<const player *> player_range);
@@ -814,7 +813,7 @@ namespace dsx {
  */
 struct netgame_info : prohibit_void_ptr<netgame_info>
 {
-	static constexpr std::integral_constant<unsigned, (0 for_each_netflag_value(define_netflag_powerup_mask))> MaskAllKnownAllowedItems{};
+	static constexpr std::integral_constant<netflag_flag, static_cast<netflag_flag>(0 for_each_netflag_value(define_netflag_powerup_mask))> MaskAllKnownAllowedItems{};
 #undef define_netflag_powerup_mask
 	using play_time_allowed_abi_ratio = std::ratio<5 * 60>;
 #if DXX_USE_UDP
@@ -848,7 +847,7 @@ struct netgame_info : prohibit_void_ptr<netgame_info>
 	uint8_t						SecludedSpawns;
 	uint8_t MouselookFlags;
 	uint8_t PitchLockFlags;
-	uint32_t					AllowedItems;
+	netflag_flag				AllowedItems;
 	packed_spawn_granted_items SpawnGrantedItems;
 	packed_netduplicate_items DuplicatePowerups;
 	unsigned ShufflePowerupSeed;
@@ -932,17 +931,17 @@ netplayer_info::player_rank build_rank_from_untrusted(uint8_t untrusted);
 }
 
 /* Stub for mods that remap player colors */
-static inline unsigned get_player_color(unsigned pnum)
+static inline unsigned get_player_color(const playernum_t pnum)
 {
-	return pnum;
+	return static_cast<unsigned>(pnum);
 }
 
-static inline unsigned get_team_color(unsigned tnum)
+static inline unsigned get_team_color(const team_number tnum)
 {
-	return tnum;
+	return static_cast<unsigned>(tnum);
 }
 
-static inline unsigned get_player_or_team_color(unsigned pnum)
+static inline unsigned get_player_or_team_color(const playernum_t pnum)
 {
 	return Game_mode & GM_TEAM
 		? get_team_color(get_team(pnum))
