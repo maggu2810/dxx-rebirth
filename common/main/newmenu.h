@@ -419,7 +419,7 @@ struct listbox_layout
 	}
 	void create_structure();
 	unsigned items_on_screen;
-	int box_x, box_y;
+	uint16_t box_x, box_y;
 	int box_w, height, title_height;
 	int citem, first_item;
 	unsigned nitems;
@@ -467,7 +467,7 @@ int newmenu_do2(const menu_title title, const menu_subtitle subtitle, ranges::su
 	return newmenu_do2(title, subtitle, std::move(items), reinterpret_cast<newmenu_subfunction>(subfunction), static_cast<void *>(const_cast<T *>(userdata)), citem, filename);
 }
 
-enum class mission_filter_mode
+enum class mission_filter_mode : bool
 {
 	exclude_anarchy,
 	include_anarchy,

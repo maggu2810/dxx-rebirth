@@ -2107,6 +2107,22 @@ help:assume compiler supports C++ intrinsic static_assert
 
 	@_custom_test
 	def check_namespace_disambiguate(self,context,_successflags={'CPPDEFINES' : ['DXX_HAVE_CXX_DISAMBIGUATE_USING_NAMESPACE']}):
+		'''
+Test how the compiler handles the ambiguity of a namespace at top level scope
+and a class with the same name in an inner scope.
+
+- gcc (all tested versions) treat `A` as a namespace, and find the variable
+  declared in that namespace.
+- clang (all tested versions) treat `A` as ambiguous and fail the compilation.
+
+The gcc behavior is useful to allow selectively poisoning the dcx/dsx
+namespaces when used in the wrong scope, without breaking legitimate accesses
+to them.  Therefore, when the compiler can handle this ambiguity,
+`common/include/dsx-ns.h` forward declares appropriate ambiguous names.
+See the comments in that header for more details.
+
+help:assume compiler can disambiguate classes and namespaces
+'''
 		self.Compile(context, text='''
 namespace A
 {
@@ -2620,6 +2636,42 @@ constexpr literal_as_type<T, v...> operator""_literal_as_type();
 	(void)b;
 ''', msg='whether compiler accepts string literal operator templates'):
 			self.successful_flags['CXXFLAGS'].append('-Wno-gnu-string-literal-operator-template')
+
+	@_custom_test
+	def check_compiler_overzealous_braced_scalar_init(self,context,_text='''
+/* clang-16 issues a spurious -Wbraced-scalar-init warning if the result
+ * is returned anonymously.
+
+```
+error: braces around scalar initializer [-Werror,-Wbraced-scalar-init]
+```
+
+ * Removing the braces allows an implicit narrowing of the result, which would
+ * be a trap for a future maintenance programmer.
+ *
+ * gcc accepts the anonymous brace-initialized result.
+ */
+unsigned f(unsigned i);
+unsigned f(unsigned i)
+{
+	return {i + 1};
+}
+
+unsigned g(unsigned i);
+unsigned g(unsigned i)
+{
+	++i;
+	return {i};
+}
+''',_main='''
+	f({5});
+	g({6});
+''',successflags={'CXXFLAGS' : ['-Wno-braced-scalar-init']}):
+		if self.Compile(context, text=_text, main=_main, msg='whether compiler accepts braced variables as function arguments and return values'):
+			return
+		if self.Compile(context, text=_text, main=_main, msg='whether compiler accepts -Wno-braced-scalar-init', successflags=successflags):
+			return
+		raise SCons.Errors.StopError("C++ compiler rejects braced scalar initialization, even with `-Wno-braced-scalar-init`.")
 
 	@_custom_test
 	def check_have_std_ranges(self,context,_testflags={'CPPDEFINES' : ['_LIBCPP_ENABLE_EXPERIMENTAL']}):

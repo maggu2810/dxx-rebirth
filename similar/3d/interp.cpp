@@ -160,7 +160,7 @@ public:
 	{
 		return w(p + 2);
 	}
-	__attribute_cold
+	[[noreturn]]
 	static void op_default(const unsigned op, const uint8_t *const p)
 	{
 		char buf[64];
@@ -545,6 +545,7 @@ public:
 #endif
 
 template <typename P, typename State>
+[[nodiscard]]
 static std::size_t dispatch_polymodel_op(const P p, State &state, const uint_fast32_t op)
 {
 	switch (op)
@@ -574,28 +575,27 @@ static std::size_t dispatch_polymodel_op(const P p, State &state, const uint_fas
 			return record_size;
 		}
 		case OP_SORTNORM: {
-			const std::size_t record_size = 32;
+			constexpr std::size_t record_size{32};
 			state.op_sortnorm(p);
 			return record_size;
 		}
 		case OP_RODBM: {
-			const std::size_t record_size = 36;
+			constexpr std::size_t record_size{36};
 			state.op_rodbm(p);
 			return record_size;
 		}
 		case OP_SUBCALL: {
-			const std::size_t record_size = 20;
+			constexpr std::size_t record_size{20};
 			state.op_subcall(p);
 			return record_size;
 		}
 		case OP_GLOW: {
-			const std::size_t record_size = 4;
+			constexpr std::size_t record_size{4};
 			state.op_glow(p);
 			return record_size;
 		}
 		default:
 			state.op_default(op, p);
-			return 2;
 	}
 }
 

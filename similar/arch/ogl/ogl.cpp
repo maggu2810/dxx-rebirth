@@ -11,6 +11,7 @@
  */
 
 #include "dxxsconf.h"
+#include <bit>
 #include <stdexcept>
 #include <tuple>
 #ifdef _WIN32
@@ -81,6 +82,21 @@ using std::max;
 #endif
 
 namespace {
+
+static constexpr float PAL2Tr(const color_palette_index c)
+{
+	return PAL2T(c).r / 63.0f;
+}
+
+static constexpr float PAL2Tg(const color_palette_index c)
+{
+	return PAL2T(c).g / 63.0f;
+}
+
+static constexpr float PAL2Tb(const color_palette_index c)
+{
+	return PAL2T(c).b / 63.0f;
+}
 
 template <unsigned G>
 struct enable_ogl_client_state
@@ -599,10 +615,10 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 	int size=270+(size_offs*20);
 	float scale = (static_cast<float>(SWIDTH)/SHEIGHT);
 	const std::array<float, 4> ret_rgba{{
-		static_cast<float>(PAL2Tr(color)),
-		static_cast<float>(PAL2Tg(color)),
-		static_cast<float>(PAL2Tb(color)),
-		static_cast<float>(1.0 - (static_cast<float>(alpha) / (static_cast<float>(GR_FADE_LEVELS))))
+		PAL2Tr(color),
+		PAL2Tg(color),
+		PAL2Tb(color),
+		float{1.0f - (static_cast<float>(alpha) / (static_cast<float>(GR_FADE_LEVELS)))}
 	}}, ret_dark_rgba{{
 		ret_rgba[0] / 2,
 		ret_rgba[1] / 2,
@@ -776,11 +792,14 @@ void g3_draw_sphere(grs_canvas &canvas, cg3s_point &pnt, fix rad, const uint8_t 
 	int i;
 	const float scale = (static_cast<float>(canvas.cv_bitmap.bm_w) / canvas.cv_bitmap.bm_h);
 	std::array<GLfloat, 20 * 4> color_array;
+	const auto color_r{CPAL2Tr(c)};
+	const auto color_g{CPAL2Tg(c)};
+	const auto color_b{CPAL2Tb(c)};
 	for (i = 0; i < 20*4; i += 4)
 	{
-		color_array[i] = CPAL2Tr(c);
-		color_array[i+1] = CPAL2Tg(c);
-		color_array[i+2] = CPAL2Tb(c);
+		color_array[i] = color_r;
+		color_array[i+1] = color_g;
+		color_array[i+2] = color_b;
 		color_array[i+3] = 1.0;
 	}
 	OGL_DISABLE(TEXTURE_2D);
@@ -859,7 +878,9 @@ void _g3_draw_poly(grs_canvas &canvas, const std::span<cg3s_point *const> pointl
 	r_polyc++;
 	ogl_client_states<int, GL_VERTEX_ARRAY, GL_COLOR_ARRAY> cs;
 	OGL_DISABLE(TEXTURE_2D);
-	const float color_r = PAL2Tr(palette_color_index), color_g = PAL2Tg(palette_color_index), color_b = PAL2Tb(palette_color_index);
+	const auto color_r{PAL2Tr(palette_color_index)};
+	const auto color_g{PAL2Tg(palette_color_index)};
+	const auto color_b{PAL2Tb(palette_color_index)};
 
 	const float color_a = (canvas.cv_fade_level >= GR_FADE_OFF)
 		? 1.0
@@ -1394,23 +1415,11 @@ void gr_flip(void)
 	glClear(GL_COLOR_BUFFER_BIT);
 }
 
-//little hack to find the nearest bigger power of 2 for a given number
-unsigned pow2ize(unsigned f0){
-	unsigned f1 = (f0 - 1) | 1;
-	for (unsigned i = 4; i -- > 0;)
-		f1 |= f1 >> (1 << i);
-	unsigned f2 = f1 + 1;
-	assert(f2 >= f0);
-	assert(!(f2 & f1));
-	assert((f2 >> 1) < f0);
-	return f2;
-}
-
 // Allocate the pixel buffers 'pixels' and 'texbuf' based on current screen resolution
 void ogl_init_pixel_buffers(unsigned w, unsigned h)
 {
-	w = pow2ize(w);	// convert to OpenGL texture size
-	h = pow2ize(h);
+	w = std::bit_ceil(w);	// convert to OpenGL texture size
+	h = std::bit_ceil(h);
 
 	texbuf = std::make_unique<GLubyte[]>(max(w, 1024u)*max(h, 256u)*4);	// must also fit big font texture
 }
@@ -1614,8 +1623,8 @@ static void tex_set_size(ogl_texture &tex)
 //stores OpenGL textured id in *texid and u/v values required to get only the real data in *u/*v
 static int ogl_loadtexture(const palette_array_t &pal, const uint8_t *data, const int dxo, int dyo, ogl_texture &tex, const int bm_flags, const int data_format, opengl_texture_filter texfilt, const bool texanis, const bool edgepad)
 {
-	tex.tw = pow2ize (tex.w);
-	tex.th = pow2ize (tex.h);//calculate smallest texture size that can accomodate us (must be multiples of 2)
+	tex.tw = {std::bit_ceil(tex.w)};
+	tex.th = {std::bit_ceil(tex.h)};	//calculate smallest texture size that can accommodate us (must be power of 2)
 
 	//calculate u/v values that would make the resulting texture correctly sized
 	tex.u = static_cast<float>(static_cast<double>(tex.w) / static_cast<double>(tex.tw));

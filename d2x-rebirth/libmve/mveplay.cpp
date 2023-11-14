@@ -40,18 +40,12 @@
 #include "libmve.h"
 #include "args.h"
 #include "console.h"
-#include "d_uspan.h"
 #include "u_mem.h"
-
-#define MVE_AUDIO_FLAGS_STEREO     1
-#define MVE_AUDIO_FLAGS_16BIT      2
-#define MVE_AUDIO_FLAGS_COMPRESSED 4
 
 namespace d2x {
 
 int g_spdFactorNum=0;
 static int g_spdFactorDenom=10;
-static int g_frameUpdated = 0;
 
 static int16_t get_short(const unsigned char *data)
 {
@@ -212,9 +206,15 @@ static void do_timer_wait(void)
 /*************************
  * audio handlers
  *************************/
-#define TOTAL_AUDIO_BUFFERS 64
 
 namespace {
+
+enum : uint8_t
+{
+	MVE_AUDIO_FLAGS_STEREO = 1,
+	MVE_AUDIO_FLAGS_16BIT = 2,
+	MVE_AUDIO_FLAGS_COMPRESSED = 4,
+};
 
 template <typename T>
 struct MVE_audio_clamp
@@ -230,32 +230,24 @@ struct MVE_audio_clamp
 	}
 };
 
-static std::array<unique_span<int16_t>, TOTAL_AUDIO_BUFFERS> mve_audio_buffers;
-
 }
 
 static void mve_audio_callback(void *userdata, unsigned char *stream, int len);
-static int    mve_audio_curbuf_curpos=0;
-static int mve_audio_bufhead=0;
-static int mve_audio_buftail=0;
-static int mve_audio_playing=0;
-static unsigned mve_audio_flags;
-static MVE_play_sounds mve_audio_enabled;
-static std::unique_ptr<SDL_AudioSpec> mve_audio_spec;
 
-static void mve_audio_callback(void *, unsigned char *stream, int len)
+static void mve_audio_callback(void *const vstream, unsigned char *stream, int len)
 {
+	auto &mvestream = *reinterpret_cast<MVESTREAM *>(vstream);
 #ifdef DXX_REPORT_TOTAL_LENGTH
 	int total=0;
 #endif
-	if (mve_audio_bufhead == mve_audio_buftail)
+	if (mvestream.mve_audio_bufhead == mvestream.mve_audio_buftail)
 		return /* 0 */;
 
-	//con_printf(CON_CRITICAL, "+ <%d (%d), %d, %d>", mve_audio_bufhead, mve_audio_curbuf_curpos, mve_audio_buftail, len);
+	//con_printf(CON_CRITICAL, "+ <%d (%d), %d, %d>", mvestream.mve_audio_bufhead, mvestream.mve_audio_curbuf_curpos, mvestream.mve_audio_buftail, len);
 
 	std::span<const std::byte> audio_buffer;
-	while (mve_audio_bufhead != mve_audio_buftail                                           /* while we have more buffers  */
-		   && len > (audio_buffer = std::as_bytes(mve_audio_buffers[mve_audio_bufhead].span()).subspan(mve_audio_curbuf_curpos)).size())        /* and while we need more data */
+	while (mvestream.mve_audio_bufhead != mvestream.mve_audio_buftail                                           /* while we have more buffers  */
+		   && len > (audio_buffer = std::as_bytes(mvestream.mve_audio_buffers[mvestream.mve_audio_bufhead].span()).subspan(mvestream.mve_audio_curbuf_curpos)).size())        /* and while we need more data */
 	{
 		const auto length = audio_buffer.size();
 		memcpy(stream,                                                                  /* cur output position */
@@ -267,64 +259,58 @@ static void mve_audio_callback(void *, unsigned char *stream, int len)
 #endif
 		stream += length;                                                               /* advance output */
 		len -= length;                                                                  /* decrement avail ospace */
-		mve_audio_buffers[mve_audio_bufhead] = {};                                 /* free the buffer */
+		mvestream.mve_audio_buffers[mvestream.mve_audio_bufhead] = {};                                 /* free the buffer */
 
-		if (++mve_audio_bufhead == TOTAL_AUDIO_BUFFERS)                                 /* next buffer */
-			mve_audio_bufhead = 0;
-		mve_audio_curbuf_curpos = 0;
+		if (++mvestream.mve_audio_bufhead == mvestream.mve_audio_buffers.size())                                 /* next buffer */
+			mvestream.mve_audio_bufhead = 0;
+		mvestream.mve_audio_curbuf_curpos = 0;
 	}
 
 #ifdef DXX_REPORT_TOTAL_LENGTH
-	//con_printf(CON_CRITICAL, "= <%d (%d), %d, %d>: %d", mve_audio_bufhead, mve_audio_curbuf_curpos, mve_audio_buftail, len, total);
+	//con_printf(CON_CRITICAL, "= <%d (%d), %d, %d>: %d", mvestream.mve_audio_bufhead, mvestream.mve_audio_curbuf_curpos, mvestream.mve_audio_buftail, len, total);
 #endif
 	/*    return total; */
 
 	if (len != 0                                                                        /* ospace remaining  */
-		&&  mve_audio_bufhead != mve_audio_buftail)                                     /* buffers remaining */
+		&&  mvestream.mve_audio_bufhead != mvestream.mve_audio_buftail)                                     /* buffers remaining */
 	{
 		memcpy(stream,                                                                  /* dest */
-		       (reinterpret_cast<uint8_t *>(mve_audio_buffers[mve_audio_bufhead].get()))+mve_audio_curbuf_curpos,         /* src */
+		       (reinterpret_cast<uint8_t *>(mvestream.mve_audio_buffers[mvestream.mve_audio_bufhead].get())) + mvestream.mve_audio_curbuf_curpos,         /* src */
 			   len);                                                                    /* length */
 
-		mve_audio_curbuf_curpos += len;                                                 /* advance input */
+		mvestream.mve_audio_curbuf_curpos += len;                                                 /* advance input */
 		stream += len;                                                                  /* advance output (unnecessary) */
 		len -= len;                                                                     /* advance output (unnecessary) */
 
-		auto &a = mve_audio_buffers[mve_audio_bufhead];
-		if (mve_audio_curbuf_curpos >= a.span().size_bytes())            /* if this ends the current chunk */
+		auto &a = mvestream.mve_audio_buffers[mvestream.mve_audio_bufhead];
+		if (mvestream.mve_audio_curbuf_curpos >= a.span().size_bytes())            /* if this ends the current chunk */
 		{
 			a = {};                             /* free buffer */
 
-			if (++mve_audio_bufhead == TOTAL_AUDIO_BUFFERS)                             /* next buffer */
-				mve_audio_bufhead = 0;
-			mve_audio_curbuf_curpos = 0;
+			if (++mvestream.mve_audio_bufhead == mvestream.mve_audio_buffers.size())                             /* next buffer */
+				mvestream.mve_audio_bufhead = 0;
+			mvestream.mve_audio_curbuf_curpos = 0;
 		}
 	}
 
-	//con_printf(CON_CRITICAL, "- <%d (%d), %d, %d>", mve_audio_bufhead, mve_audio_curbuf_curpos, mve_audio_buftail, len);
+	//con_printf(CON_CRITICAL, "- <%d (%d), %d, %d>", mvestream.mve_audio_bufhead, mvestream.mve_audio_curbuf_curpos, mvestream.mve_audio_buftail, len);
 }
 
 MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned char minor, const unsigned char *data)
 {
-	int flags;
-	int sample_rate;
-	int desired_buffer;
-
 	if (mve_audio_enabled == MVE_play_sounds::silent)
 		return MVESTREAM::handle_result::step_again;
 
 	if (mve_audio_spec)
 		return MVESTREAM::handle_result::step_again;
 
-	flags = get_ushort(data + 2);
-	sample_rate = get_ushort(data + 4);
-	desired_buffer = get_int(data + 6);
+	auto flags{get_ushort(&data[2])};
+	const auto sample_rate{get_ushort(&data[4])};
 
-	const unsigned stereo = (flags & MVE_AUDIO_FLAGS_STEREO);
-	const unsigned bitsize = (flags & MVE_AUDIO_FLAGS_16BIT);
+	const auto stereo{flags & MVE_AUDIO_FLAGS_STEREO};
+	const auto bitsize{flags & MVE_AUDIO_FLAGS_16BIT};
 	if (!minor)
 		flags &= ~MVE_AUDIO_FLAGS_COMPRESSED;
-	const unsigned compressed = flags & MVE_AUDIO_FLAGS_COMPRESSED;
 	mve_audio_flags = flags;
 
 	const unsigned format = (bitsize)
@@ -334,22 +320,26 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned
 	if (CGameArg.SndDisableSdlMixer)
 	{
 		con_puts(CON_CRITICAL, "creating audio buffers:");
+		const auto desired_buffer{get_int(&data[6])};
+		const auto compressed{flags & MVE_AUDIO_FLAGS_COMPRESSED};
 		con_printf(CON_CRITICAL, "sample rate = %d, desired buffer = %d, stereo = %d, bitsize = %d, compressed = %d",
 				sample_rate, desired_buffer, stereo ? 1 : 0, bitsize ? 16 : 8, compressed ? 1 : 0);
 	}
 
 	mve_audio_spec = std::make_unique<SDL_AudioSpec>();
-	mve_audio_spec->freq = sample_rate;
-	mve_audio_spec->format = format;
-	mve_audio_spec->channels = (stereo) ? 2 : 1;
-	mve_audio_spec->samples = 4096;
-	mve_audio_spec->callback = mve_audio_callback;
-	mve_audio_spec->userdata = NULL;
+	{
+		auto &s = *mve_audio_spec;
+		s.freq = sample_rate;
+		s.format = format;
+		s.channels = (stereo) ? 2 : 1;
+		s.samples = 4096;
+		s.callback = mve_audio_callback;
+		s.userdata = this;
 
 	// MD2211: if using SDL_Mixer, we never reinit the sound system
 	if (CGameArg.SndDisableSdlMixer)
 	{
-		if (SDL_OpenAudio(mve_audio_spec.get(), NULL) >= 0) {
+		if (SDL_OpenAudio(&s, NULL) >= 0) {
 			con_puts(CON_CRITICAL, "   success");
 		}
 		else {
@@ -361,9 +351,10 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned
 #if DXX_USE_SDLMIXER
 	else {
 		// MD2211: using the same old SDL audio callback as a postmixer in SDL_mixer
-		Mix_SetPostMix(mve_audio_spec->callback, mve_audio_spec->userdata);
+		Mix_SetPostMix(s.callback, s.userdata);
 	}
 #endif
+	}
 
 	mve_audio_buffers = {};
 	return MVESTREAM::handle_result::step_again;
@@ -404,7 +395,7 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_startstopaudio()
 MVESTREAM::handle_result MVESTREAM::handle_mve_segment_audioframedata(const mve_opcode major, const unsigned char *data)
 {
 	static const int selected_chan=1;
-	if (mve_audio_spec)
+	if (const auto mve_audio_spec = this->mve_audio_spec.get())
 	{
 		std::optional<RAII_SDL_LockAudio> lock_audio{
 			mve_audio_playing ? std::optional<RAII_SDL_LockAudio>(std::in_place) : std::nullopt
@@ -488,7 +479,7 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_audioframedata(const mve_
 #endif
 			mve_audio_buffers[mve_audio_buftail] = std::move(p);
 
-			if (++mve_audio_buftail == TOTAL_AUDIO_BUFFERS)
+			if (++mve_audio_buftail == mve_audio_buffers.size())
 				mve_audio_buftail = 0;
 
 			if (mve_audio_buftail == mve_audio_bufhead)
@@ -503,24 +494,12 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_audioframedata(const mve_
  * video handlers
  *************************/
 
-static int videobuf_created = 0;
-static int video_initialized = 0;
-int g_width, g_height;
-static std::vector<unsigned char> g_vBuffers;
-unsigned char *g_vBackBuf1, *g_vBackBuf2;
-
-static int g_destX, g_destY;
-static int g_screenWidth, g_screenHeight;
-static std::span<const uint8_t> g_pCurMap;
-static int g_truecolor;
-
 MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initvideobuffers(unsigned char minor, const unsigned char *data)
 {
-	short w, h,
+	short w, h;
 #ifdef DEBUG
-		count, 
+	short count;
 #endif
-		truecolor;
 
 	if (videobuf_created)
 		return MVESTREAM::handle_result::step_again;
@@ -539,37 +518,35 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initvideobuffers(unsigned
 #endif
 
 	if (minor > 1) {
-		truecolor = get_short(data+6);
+		truecolor = !!get_short(data + 6);
 	} else {
 		truecolor = 0;
 	}
 
-	g_width = w << 3;
-	g_height = h << 3;
+	width = w << 3;
+	height = h << 3;
 
 	/* TODO: * 4 causes crashes on some files */
 	/* only malloc once */
-	g_vBuffers.assign(g_width * g_height * 8, 0);
-	g_vBackBuf1 = &g_vBuffers[0];
+	vBuffers.assign(width * height * 8, 0);
+	vBackBuf1 = &vBuffers[0];
 	if (truecolor) {
-		g_vBackBuf2 = reinterpret_cast<uint8_t *>(reinterpret_cast<uint16_t *>(g_vBackBuf1) + (g_width * g_height));
+		vBackBuf2 = reinterpret_cast<uint8_t *>(reinterpret_cast<uint16_t *>(vBackBuf1) + (width * height));
 	} else {
-		g_vBackBuf2 = (g_vBackBuf1 + (g_width * g_height));
+		vBackBuf2 = (vBackBuf1 + (width * height));
 	}
 #ifdef DEBUG
 	con_printf(CON_CRITICAL, "DEBUG: w,h=%d,%d count=%d, tc=%d", w, h, count, truecolor);
 #endif
-
-	g_truecolor = truecolor;
 
 	return MVESTREAM::handle_result::step_again;
 }
 
 MVESTREAM::handle_result MVESTREAM::handle_mve_segment_displayvideo()
 {
-	MovieShowFrame(g_vBackBuf1, g_destX, g_destY, g_width, g_height, g_screenWidth, g_screenHeight);
+	MovieShowFrame(vBackBuf1, destX, destY, width, height, screenWidth, screenHeight);
 
-	g_frameUpdated = 1;
+	frameUpdated = 1;
 
 	return MVESTREAM::handle_result::step_again;
 }
@@ -585,8 +562,8 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initvideomode(const unsig
 
 	width = get_short(data);
 	height = get_short(data+2);
-	g_screenWidth = width;
-	g_screenHeight = height;
+	screenWidth = width;
+	screenHeight = height;
 
 	return MVESTREAM::handle_result::step_again;
 }
@@ -604,7 +581,7 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_setpalette(const unsigned
 
 MVESTREAM::handle_result MVESTREAM::handle_mve_segment_setdecodingmap(const unsigned char *data, int len)
 {
-	g_pCurMap = std::span<const uint8_t>(data, len);
+	pCurMap = std::span<const uint8_t>(data, len);
 	return MVESTREAM::handle_result::step_again;
 }
 
@@ -623,14 +600,14 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_videodata(const unsigned 
 
 	if (nFlags & 1)
 	{
-		std::swap(g_vBackBuf1, g_vBackBuf2);
+		std::swap(vBackBuf1, vBackBuf2);
 	}
 
 	/* convert the frame */
-	if (g_truecolor) {
-		decodeFrame16(g_vBackBuf1, g_pCurMap, data+14, len-14);
+	if (truecolor) {
+		decodeFrame16(reinterpret_cast<const uint16_t *>(vBackBuf2), width, height, vBackBuf1, pCurMap, data+14, len-14);
 	} else {
-		decodeFrame8(g_vBackBuf1, g_pCurMap, data+14, len-14);
+		decodeFrame8(vBackBuf2, width, height, vBackBuf1, pCurMap, data+14, len-14);
 	}
 
 	return MVESTREAM::handle_result::step_again;
@@ -638,34 +615,21 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_videodata(const unsigned 
 
 MVESTREAM::handle_result MVESTREAM::handle_mve_segment_endofchunk()
 {
-	g_pCurMap = {};
+	pCurMap = {};
 	return MVESTREAM::handle_result::step_again;
 }
 
-MVESTREAM_ptr_t MVE_rmPrepMovie(RWops_ptr src, const int x, const int y)
+MVESTREAM_ptr_t MVE_rmPrepMovie(const MVE_play_sounds audio_enabled, const int x, const int y, RWops_ptr src)
 {
-	MVESTREAM_ptr_t pMovie{mve_open(std::move(src))};
+	MVESTREAM_ptr_t pMovie{mve_open(audio_enabled, x, y, std::move(src))};
 	if (!pMovie)
 		return pMovie;
-
-	g_destX = x;
-	g_destY = y;
 
 	auto &mve = *pMovie.get();
 
 	mve_play_next_chunk(mve); /* video initialization chunk */
 	mve_play_next_chunk(mve); /* audio initialization chunk */
 	return pMovie;
-}
-
-
-void MVE_getVideoSpec(MVE_videoSpec *vSpec)
-{
-	vSpec->screenWidth = g_screenWidth;
-	vSpec->screenHeight = g_screenHeight;
-	vSpec->width = g_width;
-	vSpec->height = g_height;
-	vSpec->truecolor = g_truecolor;
 }
 
 MVE_StepStatus MVE_rmStepMovie(MVESTREAM &mve)
@@ -680,13 +644,13 @@ MVE_StepStatus MVE_rmStepMovie(MVESTREAM &mve)
 		// make a "step" be a frame, not a chunk...
 		if (mve_play_next_chunk(mve) == MVESTREAM::handle_result::step_finished)
 		{
-			g_frameUpdated = 0;
+			mve.frameUpdated = 0;
 			return MVE_StepStatus::EndOfFile;
 		}
-		if (g_frameUpdated)
+		if (mve.frameUpdated)
 			break;
 	}
-	g_frameUpdated = 0;
+	mve.frameUpdated = 0;
 
 	if (micro_frame_delay  && !init_timer) {
 		timer_start();
@@ -698,11 +662,11 @@ MVE_StepStatus MVE_rmStepMovie(MVESTREAM &mve)
 	return MVE_StepStatus::Continue;
 }
 
-void MVE_rmEndMovie(std::unique_ptr<MVESTREAM>)
+void MVE_rmEndMovie(std::unique_ptr<MVESTREAM> stream)
 {
 	timer_stop();
 
-	if (mve_audio_spec) {
+	if (stream->mve_audio_spec) {
 		// MD2211: if using SDL_Mixer, we never reinit sound, hence never close it
 		if (CGameArg.SndDisableSdlMixer)
 		{
@@ -712,32 +676,13 @@ void MVE_rmEndMovie(std::unique_ptr<MVESTREAM>)
 		else
 			Mix_SetPostMix(nullptr, nullptr);
 #endif
-		mve_audio_spec = {};
 	}
-	mve_audio_buffers = {};
-
-	mve_audio_curbuf_curpos=0;
-	mve_audio_bufhead=0;
-	mve_audio_buftail=0;
-	mve_audio_playing=0;
-	mve_audio_flags = 0;
-
-	g_vBuffers.clear();
-	g_pCurMap = {};
-	videobuf_created = 0;
-	video_initialized = 0;
 }
 
 
 void MVE_rmHoldMovie()
 {
 	timer_started = 0;
-}
-
-
-void MVE_sndInit(MVE_play_sounds x)
-{
-	mve_audio_enabled = x;
 }
 
 }

@@ -12,11 +12,13 @@
 
 #include "libmve.h"
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <vector>
 #include "dxxsconf.h"
 #include <SDL.h>
+#include "d_uspan.h"
 #include "physfsrwops.h"
 
 namespace d2x {
@@ -105,10 +107,32 @@ struct MVESTREAM
 		step_finished,
 		step_again,
 	};
-	MVESTREAM();
+	MVESTREAM(MVE_play_sounds, int x, int y);
 	~MVESTREAM();
 	std::unique_ptr<MVEFILE> movie;
+	std::span<const uint8_t> pCurMap{};
+	std::vector<unsigned char> vBuffers{};
+	std::unique_ptr<SDL_AudioSpec> mve_audio_spec;
+	const MVE_play_sounds mve_audio_enabled;
+	bool mve_audio_playing{};
 	uint8_t timer_created{};
+	uint8_t truecolor{};
+	uint8_t videobuf_created{};
+	uint8_t video_initialized{};
+	uint8_t frameUpdated{};
+	uint8_t mve_audio_flags{};
+	uint16_t screenWidth{};
+	uint16_t screenHeight{};
+	const int destX;
+	const int destY;
+	int width{};
+	int height{};
+	int mve_audio_bufhead{};
+	int mve_audio_buftail{};
+	int mve_audio_curbuf_curpos{};
+	unsigned char *vBackBuf1{};
+	unsigned char *vBackBuf2{};
+	std::array<::dcx::unique_span<int16_t>, 64> mve_audio_buffers;
 
 	handle_result handle_mve_segment_endofstream();
 	handle_result handle_mve_segment_endofchunk();
@@ -133,12 +157,12 @@ struct MVESTREAM_deleter_t
 };
 
 typedef std::unique_ptr<MVESTREAM, MVESTREAM_deleter_t> MVESTREAM_ptr_t;
-MVESTREAM_ptr_t MVE_rmPrepMovie(RWops_ptr stream, int x, int y);
+MVESTREAM_ptr_t MVE_rmPrepMovie(MVE_play_sounds, int x, int y, RWops_ptr stream);
 
 /*
  * open an MVE stream
  */
-MVESTREAM_ptr_t mve_open(RWops_ptr stream);
+MVESTREAM_ptr_t mve_open(MVE_play_sounds audio_enabled, int x, int y, RWops_ptr stream);
 
 /*
  * reset an MVE stream

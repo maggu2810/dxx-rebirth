@@ -12,6 +12,10 @@
 #ifndef _OGL_INIT_H_ 
 #define _OGL_INIT_H_
 
+#if !DXX_USE_OGL
+#error "This file can only be included in OpenGL enabled builds."
+#endif
+
 #include "dxxsconf.h"
 #ifdef _MSC_VER
 #include <windows.h>
@@ -35,7 +39,8 @@ struct ogl_texture
 	GLuint handle;
 	GLint internalformat;
 	GLenum format;
-	int w,h,tw,th,lw;
+	unsigned w, h, tw, th;
+	int lw;
 	int bytesu;
 	int bytes;
 	GLfloat u,v;
@@ -130,7 +135,6 @@ namespace dcx {
 void ogl_draw_vertex_reticle(grs_canvas &, int cross, int primary, int secondary, int color, int alpha, int size_offs);
 void ogl_toggle_depth_test(int enable);
 void ogl_set_blending(gr_blend);
-unsigned pow2ize(unsigned x);//from ogl.c
 }
 
 #endif /* _OGL_INIT_H_ */

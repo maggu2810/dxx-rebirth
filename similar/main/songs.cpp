@@ -23,7 +23,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
  *
  */
 
-
+#include <iterator>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,28 +53,28 @@ namespace {
 class user_configured_level_songs : std::unique_ptr<bim_song_info[]>
 {
 	using base_type = std::unique_ptr<bim_song_info[]>;
-	unsigned count;
+	std::size_t count;
 public:
 	using base_type::operator[];
 	using base_type::operator bool;
 	user_configured_level_songs() = default;
-	user_configured_level_songs(const std::size_t length) :
-		base_type(std::make_unique<bim_song_info[]>(length)), count(length)
+	explicit user_configured_level_songs(const std::size_t length) :
+		base_type{std::make_unique<bim_song_info[]>(length)}, count{length}
 	{
 	}
-	unsigned size() const
+	auto size() const
 	{
 		return count;
 	}
 	void reset()
 	{
-		count = 0;
+		count = {};
 		base_type::reset();
 	}
 	void resize(const std::size_t length)
 	{
 		base_type::operator=(std::make_unique<bim_song_info[]>(length));
-		count = length;
+		count = {length};
 	}
 	user_configured_level_songs &operator=(user_configured_level_songs &&) = default;
 	void operator=(std::vector<bim_song_info> &&v);
@@ -150,9 +150,17 @@ static int is_valid_song_extension(const char* dot)
 }
 
 template <std::size_t N>
+requires(
+	/* Compile-time check that the input string will not overflow the output
+	 * buffer.
+	 */
+	requires(bim_song_info song) {
+		requires(std::size(song.filename) >= N);
+	}
+)
 static inline void assign_builtin_song(bim_song_info &song, const char (&str)[N])
 {
-	strncpy(song.filename, str, sizeof(song.filename));
+	std::ranges::copy(str, std::ranges::begin(song.filename));
 }
 
 static void add_song(std::vector<bim_song_info> &songs, const char *const input)
@@ -194,12 +202,11 @@ static void songs_init()
 	else
 		canUseExtensions = 1; // can use extensions ONLY if dxx-r.sng
 
-	unsigned i = 0;
 	if (!fp) // No descent.sng available. Define a default song-set
 	{
-		constexpr std::size_t predef = 30; // define 30 songs - period
+		constexpr std::size_t predef{30}; // define 30 songs - period
 
-		user_configured_level_songs builtin_songs(predef);
+		user_configured_level_songs builtin_songs{predef};
 
 		assign_builtin_song(builtin_songs[SONG_TITLE], "descent.hmp");
 		assign_builtin_song(builtin_songs[SONG_BRIEFING], "briefing.hmp");
@@ -207,11 +214,13 @@ static void songs_init()
 		assign_builtin_song(builtin_songs[SONG_ENDLEVEL], "endlevel.hmp");	// can't find it? give a warning
 		assign_builtin_song(builtin_songs[SONG_ENDGAME], "endgame.hmp");	// ditto
 
-		for (i = SONG_FIRST_LEVEL_SONG; i < predef; i++) {
+		for (const auto i : constant_xrange<unsigned, SONG_FIRST_LEVEL_SONG, predef>{})
+		{
 			auto &s = builtin_songs[i];
-			snprintf(s.filename, sizeof(s.filename), "game%02d.hmp", i - SONG_FIRST_LEVEL_SONG + 1);
-			if (!PHYSFSX_exists(s.filename,1) &&
-				!PHYSFSX_exists((snprintf(s.filename, sizeof(s.filename), "game%d.hmp", i - SONG_FIRST_LEVEL_SONG), s.filename), 1))
+			const auto d = std::data(s.filename);
+			const auto fs = std::size(s.filename);
+			if (!PHYSFSX_exists((snprintf(d, fs, "game%02u.hmp", i - SONG_FIRST_LEVEL_SONG + 1), d), 1) &&
+				!PHYSFSX_exists((snprintf(d, fs, "game%u.hmp", i - SONG_FIRST_LEVEL_SONG), d), 1))
 			{
 				s = {};	// music not available
 				break;
@@ -238,7 +247,6 @@ static void songs_init()
 						continue;
 					}
 				}
-
 				add_song(main_songs, inputline);
 			}
 		}
@@ -250,10 +258,10 @@ static void songs_init()
 			PHYSFS_fileLength(fp) == 422)
 		{
 			main_songs.resize(truncated_song_count + 15);
-			for (i = 12; i <= 26; i++)
+			for (const auto i : constant_xrange<unsigned, truncated_song_count, 27>{})
 			{
 				auto &s = main_songs[i];
-				snprintf(s.filename, sizeof(s.filename), "game%02d.hmp", i - 4);
+				snprintf(std::data(s.filename), std::size(s.filename), "game%02u.hmp", i - 4);
 			}
 		}
 #endif
@@ -506,11 +514,11 @@ int songs_play_song( int songnum, int repeat )
 		{
 			// EXCEPTION: If SONG_ENDLEVEL is not available, continue playing level song.
 			auto &s = BIMSongs[songnum];
-			if (Song_playing >= SONG_FIRST_LEVEL_SONG && songnum == SONG_ENDLEVEL && !PHYSFSX_exists(s.filename, 1))
+			if (Song_playing >= SONG_FIRST_LEVEL_SONG && songnum == SONG_ENDLEVEL && !PHYSFSX_exists(std::data(s.filename), 1))
 				return Song_playing;
 
 			Song_playing = -1;
-			if (songs_play_file(s.filename, repeat, NULL))
+			if (songs_play_file(std::data(s.filename), repeat, nullptr))
 				Song_playing = songnum;
 			break;
 		}
@@ -641,13 +649,13 @@ int songs_play_level_song( int levelnum, int offset )
 				 * to exclude non-levels.
 				 */
 				const int secretsongnum = (-levelnum - 1) % BIMSecretSongs.size();
-				if (songs_play_file(BIMSecretSongs[secretsongnum].filename, 1, NULL))
+				if (songs_play_file(std::data(BIMSecretSongs[secretsongnum].filename), 1, nullptr))
 					Song_playing = secretsongnum;
 			}
 			else if ((count_level_songs = BIMSongs.size() - SONG_FIRST_LEVEL_SONG) > 0)
 			{
 				songnum = SONG_FIRST_LEVEL_SONG + (songnum % count_level_songs);
-				if (songs_play_file(BIMSongs[songnum].filename, 1, NULL))
+				if (songs_play_file(std::data(BIMSongs[songnum].filename), 1, nullptr))
 					Song_playing = songnum;
 			}
 			break;

@@ -586,7 +586,7 @@ class RAIIsocket
 		return close(fd);
 	}
 #endif
-	SOCKET s = INVALID_SOCKET;
+	SOCKET s{INVALID_SOCKET};
 public:
 	constexpr RAIIsocket() = default;
 	RAIIsocket(int domain, int type, int protocol) : s(socket(domain, type, protocol))
@@ -595,7 +595,7 @@ public:
 	RAIIsocket(const RAIIsocket &) = delete;
 	RAIIsocket &operator=(const RAIIsocket &) = delete;
 	RAIIsocket(RAIIsocket &&r) :
-		s(std::exchange(r.s, INVALID_SOCKET))
+		s{std::exchange(r.s, INVALID_SOCKET)}
 	{
 	}
 	~RAIIsocket()
@@ -612,8 +612,11 @@ public:
 		if (s != INVALID_SOCKET)
 			closesocket(std::exchange(s, INVALID_SOCKET));
 	}
+	[[nodiscard]]
 	explicit operator bool() const { return s != INVALID_SOCKET; }
+	[[nodiscard]]
 	explicit operator bool() { return static_cast<bool>(*const_cast<const RAIIsocket *>(this)); }
+	[[nodiscard]]
 	operator SOCKET() { return s; }
 	template <typename T> bool operator<(T) const = delete;
 	template <typename T> bool operator<=(T) const = delete;

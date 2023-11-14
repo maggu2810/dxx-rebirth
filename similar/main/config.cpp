@@ -41,7 +41,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "u_mem.h"
 #include "physfsx.h"
 #include "nvparse.h"
+#if DXX_USE_OGL
 #include "ogl_init.h"
+#endif
 #include <memory>
 
 namespace dcx {
@@ -155,8 +157,6 @@ int ReadConfigFile()
 	for (PHYSFSX_gets_line_t<0> line(PHYSFS_fileLength(infile) + 1); const char *const eol = PHYSFSX_fgets(line, infile);)
 	{
 		const auto lb = line.begin();
-		if (eol == line.end())
-			continue;
 		auto eq = std::find(lb, eol, '=');
 		if (eq == eol)
 			continue;
