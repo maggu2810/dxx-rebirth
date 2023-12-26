@@ -65,8 +65,8 @@ static void ui_dialog_draw(UI_DIALOG *dlg)
 // The dialog handler borrows heavily from the newmenu_handler
 window_event_result UI_DIALOG::event_handler(const d_event &event)
 {
-	if (event.type == EVENT_WINDOW_ACTIVATED ||
-		event.type == EVENT_WINDOW_DEACTIVATED)
+	if (event.type == event_type::window_activated ||
+		event.type == event_type::window_deactivated)
 		return window_event_result::ignored;
 	auto rval = callback_handler(event);
 	if (rval != window_event_result::ignored)
@@ -74,24 +74,21 @@ window_event_result UI_DIALOG::event_handler(const d_event &event)
 
 	switch (event.type)
 	{
-		case EVENT_IDLE:
+		case event_type::idle:
 			timer_delay2(50);
 			[[fallthrough]];
-		case EVENT_MOUSE_BUTTON_DOWN:
-		case EVENT_MOUSE_BUTTON_UP:
-		case EVENT_MOUSE_MOVED:
-		case EVENT_KEY_COMMAND:
-		case EVENT_KEY_RELEASE:
+		case event_type::mouse_button_down:
+		case event_type::mouse_button_up:
+		case event_type::mouse_moved:
+		case event_type::key_command:
+		case event_type::key_release:
 			return ui_dialog_do_gadgets(*this, event);
-		case EVENT_WINDOW_DRAW:
+		case event_type::window_draw:
 		{
 			ui_dialog_draw(this);
 			rval = ui_dialog_do_gadgets(*this, event);
 			if (rval != window_event_result::close)
-			{
-				d_event event2 = { EVENT_UI_DIALOG_DRAW };
-				this->send_event(event2);
-			}
+				this->send_event(d_event{event_type::ui_dialog_draw});
 			return rval;
 		}
 
@@ -152,7 +149,6 @@ void restore_state()
 
 void ui_mega_process()
 {
-	int mx, my, mz;
 	unsigned char k;
 	
 	event_process();
@@ -160,7 +156,8 @@ void ui_mega_process()
 	switch( Record )
 	{
 	case 0:
-		mouse_get_delta( &mx, &my, &mz );
+		{
+			const auto [mx, my, mz] = mouse_get_delta();
 		Mouse.new_dx = mx;
 		Mouse.new_dy = my;
 		Mouse.new_buttons = mouse_get_btns();
@@ -172,6 +169,7 @@ void ui_mega_process()
 
 		break;
 	case 1:
+		{
 
 		if (ui_event_counter==0 )
 		{
@@ -191,7 +189,7 @@ void ui_mega_process()
 			ui_event_counter++;
 		}
 
-		mouse_get_delta( &mx, &my, &mz );
+		const auto [mx, my, mz] = mouse_get_delta();
 		MouseDX = mx;
 		MouseDY = my;
 		MouseButtons = mouse_get_btns();
@@ -288,6 +286,7 @@ void ui_mega_process()
 			} else {
 				Record = 0;
 			}
+		}
 		}
 
 		FrameCount++;

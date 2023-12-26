@@ -201,8 +201,8 @@ static void transfer_energy_to_shield(object &plrobj)
 		last_play_time = 0;
 
 	if (GameTime64 > last_play_time+CONVERTER_SOUND_DELAY) {
+		last_play_time = {GameTime64};
 		digi_play_sample_once(SOUND_CONVERT_ENERGY, F1_0);
-		last_play_time = GameTime64;
 	}
 }
 #endif
@@ -413,7 +413,7 @@ window_event_result choose_curseg_menu::event_handler(const d_event &event)
 {
 	switch (event.type)
 	{
-		case EVENT_WINDOW_CLOSE:
+		case event_type::window_close:
 			{
 				char *p;
 				const auto s = strtoul(text.data(), &p, 0);
@@ -445,11 +445,11 @@ window_event_result pause_window::event_handler(const d_event &event)
 {
 	switch (event.type)
 	{
-		case EVENT_WINDOW_ACTIVATED:
+		case event_type::window_activated:
 			game_flush_inputs(Controls);
 			break;
 
-		case EVENT_KEY_COMMAND:
+		case event_type::key_command:
 			switch (event_key_get(event))
 			{
 				case 0:
@@ -466,16 +466,16 @@ window_event_result pause_window::event_handler(const d_event &event)
 			}
 			break;
 
-		case EVENT_IDLE:
+		case event_type::idle:
 			timer_delay2(50);
 			break;
 
-		case EVENT_WINDOW_DRAW:
+		case event_type::window_draw:
 			gr_set_default_canvas();
 			show_boxed_message(*grd_curcanv, msg.data());
 			break;
 
-		case EVENT_WINDOW_CLOSE:
+		case event_type::window_close:
 			songs_resume();
 			break;
 
@@ -555,7 +555,7 @@ static int HandleDeathInput(const d_event &event, control_info &Controls)
 {
 	const auto input_aborts_death_sequence = [&]() {
 		const auto RespawnMode = PlayerCfg.RespawnMode;
-		if (event.type == EVENT_KEY_COMMAND)
+		if (event.type == event_type::key_command)
 		{
 			const auto key = event_key_get(event);
 			if ((RespawnMode == RespawnPress::Any && !key_isfunc(key) && key != KEY_PAUSE && key) ||
@@ -566,9 +566,9 @@ static int HandleDeathInput(const d_event &event, control_info &Controls)
 		if (RespawnMode == RespawnPress::Any
 			? (
 #if DXX_MAX_BUTTONS_PER_JOYSTICK
-				event.type == EVENT_JOYSTICK_BUTTON_UP ||
+				event.type == event_type::joystick_button_up ||
 #endif
-				event.type == EVENT_MOUSE_BUTTON_UP)
+				event.type == event_type::mouse_button_up)
 			: (Controls.state.fire_primary || Controls.state.fire_secondary || Controls.state.fire_flare))
 			return 1;
 		return 0;
@@ -654,11 +654,11 @@ static window_event_result HandleDemoKey(int key)
 			Newdemo_vcr_state = ND_STATE_PAUSED;
 			break;
 		case KEY_LEFT:
-			newdemo_single_frame_time = GameTime64;
+			newdemo_single_frame_time = {GameTime64};
 			Newdemo_vcr_state = ND_STATE_ONEFRAMEBACKWARD;
 			break;
 		case KEY_RIGHT:
-			newdemo_single_frame_time = GameTime64;
+			newdemo_single_frame_time = {GameTime64};
 			Newdemo_vcr_state = ND_STATE_ONEFRAMEFORWARD;
 			break;
 		case KEY_CTRLED + KEY_RIGHT:
@@ -1411,7 +1411,7 @@ static window_event_result HandleTestKey(const d_level_shared_robot_info_state &
 				if (Game_mode & GM_MULTI)
 					multi_send_cloak();
 				ai_do_cloak_stuff();
-				player_info.cloak_time = GameTime64;
+				player_info.cloak_time = {GameTime64};
 			}
 			break;
 		}
@@ -1681,7 +1681,7 @@ window_event_result levelwarp_menu::event_handler(const d_event &event)
 {
 	switch (event.type)
 	{
-		case EVENT_WINDOW_CLOSE:
+		case event_type::window_close:
 			handle_close_event();
 			return window_event_result::ignored;
 		default:
@@ -1843,7 +1843,7 @@ static window_event_result FinalCheats(const d_level_shared_robot_info_state &Le
 		if (have_cloaked)
 		{
 			ai_do_cloak_stuff();
-			player_info.cloak_time = GameTime64;
+			player_info.cloak_time = {GameTime64};
 		}
 	}
 
@@ -2024,7 +2024,7 @@ public:
 			if (Game_mode & GM_MULTI)
 				multi_send_cloak();
 			ai_do_cloak_stuff();
-			get().cloak_time = GameTime64;
+			get().cloak_time = {GameTime64};
 		}
 		return *this;
 	}
@@ -2087,7 +2087,7 @@ window_event_result wimp_menu::event_handler(const d_event &event)
 {
 	switch (event.type)
 	{
-		case EVENT_WINDOW_CLOSE:
+		case event_type::window_close:
 			{
 				auto &pl_info = plrobj.ctype.player_info;
 				uint8_t plr_laser_level;
@@ -2158,7 +2158,7 @@ window_event_result ReadControls(const d_level_shared_robot_info_state &LevelSha
 	if (Newdemo_state == ND_STATE_PLAYBACK)
 		update_vcr_state();
 
-	if (event.type == EVENT_KEY_COMMAND)
+	if (event.type == event_type::key_command)
 	{
 		key = event_key_get(event);
 #if defined(DXX_BUILD_DESCENT_II)

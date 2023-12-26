@@ -63,7 +63,7 @@ struct messagebox : UI_DIALOG
 
 window_event_result messagebox::callback_handler(const d_event &event)
 {
-	if (event.type == EVENT_UI_DIALOG_DRAW)
+	if (event.type == event_type::ui_dialog_draw)
 	{
 		const grs_font * temp_font;
 
@@ -144,10 +144,7 @@ int (ui_messagebox)( short xc, short yc, const char * text, const ui_messagebox_
 	height += 2;  // For line in middle
 
 	{
-		int mx, my, mz;
-		
-		mouse_get_pos(&mx, &my, &mz);
-
+		const auto [mx, my, mz] = mouse_get_pos();
 		if ( xc == -1 )
 			xc = mx;
 

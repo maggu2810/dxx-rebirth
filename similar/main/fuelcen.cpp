@@ -569,7 +569,7 @@ constexpr std::integral_constant<unsigned, F1_0 / 4> FUELCEN_SOUND_DELAY{};
 //-------------------------------------------------------------
 fix fuelcen_give_fuel(const shared_segment &segp, fix MaxAmountCanTake)
 {
-	static fix64 last_play_time = 0;
+	static fix64 last_play_time{};
 
 	if (segp.special == segment_special::fuelcen)
 	{
@@ -590,7 +590,7 @@ fix fuelcen_give_fuel(const shared_segment &segp, fix MaxAmountCanTake)
 
 		if (last_play_time + FUELCEN_SOUND_DELAY < GameTime64 || last_play_time > GameTime64)
 		{
-			last_play_time = GameTime64;
+			last_play_time = {GameTime64};
 			multi_digi_play_sample(SOUND_REFUEL_STATION_GIVING_FUEL, F1_0/2);
 		}
 		return amount;
@@ -609,7 +609,7 @@ namespace dcx {
 // use same values as fuel centers
 fix repaircen_give_shields(const shared_segment &segp, const fix MaxAmountCanTake)
 {
-	static fix last_play_time=0;
+	static fix64 last_play_time{};
 
 	if (segp.special == segment_special::repaircen)
 	{
@@ -623,8 +623,8 @@ fix repaircen_give_shields(const shared_segment &segp, const fix MaxAmountCanTak
 		if (last_play_time > GameTime64)
 			last_play_time = 0;
 		if (GameTime64 > last_play_time+FUELCEN_SOUND_DELAY) {
+			last_play_time = {GameTime64};
 			multi_digi_play_sample(SOUND_REFUEL_STATION_GIVING_FUEL, F1_0/2);
-			last_play_time = GameTime64;
 		}
 		return amount;
 	} else {

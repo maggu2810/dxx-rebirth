@@ -139,9 +139,9 @@ struct mission_subdir_stats
 struct mission_name_and_version
 {
 #if defined(DXX_BUILD_DESCENT_II)
-	const Mission::descent_version_type descent_version = {};
+	const Mission::descent_version_type descent_version{};
 #endif
-	char *const name = nullptr;
+	char *const name{};
 	mission_name_and_version() = default;
 	mission_name_and_version(Mission::descent_version_type, char *);
 };
@@ -566,9 +566,8 @@ static int read_mission_file(mission_list_type &mission_list, mission_candidate_
 		{
 			if (istok(temp,"type"))
 			{
-				const auto p = get_value(temp);
 				//get mission type
-				if (p)
+				if (const auto p = get_value(temp))
 					mission->anarchy_only_flag = istok(p, "anarchy") ? Mission::anarchy_only_level::only_anarchy_games : Mission::anarchy_only_level::allow_any_game;
 			}
 		}
@@ -1326,9 +1325,9 @@ window_event_result mission_menu::callback_handler(const d_event &event, window_
 {
 	switch (event.type)
 	{
-		case EVENT_WINDOW_CREATED:
+		case event_type::window_created:
 			break;
-		case EVENT_NEWMENU_SELECTED:
+		case event_type::newmenu_selected:
 		{
 			const auto raw_citem = static_cast<const d_select_event &>(event).citem;
 			auto citem = raw_citem;
@@ -1338,7 +1337,7 @@ window_event_result mission_menu::callback_handler(const d_event &event, window_
 				{
 					/* Clear parent pointer so that the parent window is
 					 * not implicitly closed during handling of
-					 * EVENT_WINDOW_CLOSE.
+					 * event_type::window_close.
 					 */
 					parent = nullptr;
 					return window_event_result::close;
@@ -1375,7 +1374,7 @@ window_event_result mission_menu::callback_handler(const d_event &event, window_
 			}
 			return (*when_selected)();
 		}
-		case EVENT_WINDOW_CLOSE:
+		case event_type::window_close:
 			/* If the user dismisses the listbox by pressing ESCAPE,
 			 * do not close the parent listbox.
 			 */

@@ -115,9 +115,7 @@ int is_under_another_window( UI_DIALOG * dlg, UI_GADGET * gadget )
 
 int ui_mouse_on_gadget(UI_GADGET &gadget)
 {
-	int x, y, z;
-	
-	mouse_get_pos(&x, &y, &z);
+	const auto [x, y, z] = mouse_get_pos();
 	if (x >= gadget.x1 && x <= gadget.x2 - 1 && y >= gadget.y1 && y <= gadget.y2 - 1)
 	{
 #if 0	// check is no longer required - if it is under another window, that dialog's handler would have returned 1
@@ -142,7 +140,7 @@ window_event_result ui_gadget_send_event(UI_DIALOG &dlg, const event_type type, 
 UI_GADGET &ui_event_get_gadget(const d_event &event)
 {
 	auto &e = static_cast<const event_gadget &>(event);
-	Assert(e.type >= EVENT_UI_GADGET_PRESSED);	// Any UI event
+	assert(e.type >= event_type::ui_gadget_pressed);	// Any UI event
 	return e.gadget;
 }
 
@@ -151,7 +149,7 @@ window_event_result ui_dialog_do_gadgets(UI_DIALOG &dlg, const d_event &event)
 	int keypress = 0;
 	UI_GADGET * tmp, * tmp1;
 
-	if (event.type == EVENT_KEY_COMMAND)
+	if (event.type == event_type::key_command)
 		keypress = event_key_get(event);
 
 	tmp = dlg.gadget;
